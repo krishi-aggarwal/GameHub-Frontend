@@ -1,4 +1,8 @@
-import React from 'react';
+
+import React, {
+  useEffect,
+  useState,
+} from 'react';
 
 import {
   ScrollView,
@@ -14,33 +18,89 @@ import Avatar from '../../components/Avatar';
 import colors from '../../theme/colors';
 import spacing from '../../theme/spacing';
 
+import {
+  useGame,
+} from '../../context/GameContext';
+
 export default function ObserverScreen({
   navigation,
-  route,
 }) {
-
   const {
-    roundNumber = 2,
-    sessionId = 'demo-session',
-  } = route?.params || {};
+    gamePhase,
+    roundNumber,
+    yourRole,
+    lastEvent,
+  } = useGame();
 
-  const messages = [
-    {
-      id: 1,
-      name: 'Player 02',
-      message: 'I think Player 04 is suspicious.',
-    },
-    {
-      id: 2,
-      name: 'Player 04',
-      message: 'That makes no sense.',
-    },
-    {
-      id: 3,
-      name: 'Player 03',
-      message: 'We need to look at the voting pattern.',
-    },
-  ];
+  const [messages, setMessages] =
+    useState([]);
+
+  /*
+   * Game Over
+   */
+  useEffect(() => {
+    if (gamePhase === 'GAME_OVER') {
+      navigation.replace('GameOver');
+    }
+  }, [
+    gamePhase,
+    navigation,
+  ]);
+
+  /*
+   * Listen to public game events.
+   */
+  useEffect(() => {
+    if (!lastEvent) {
+      return;
+    }
+
+    switch (lastEvent.type) {
+
+      case 'CHAT_MESSAGE': {
+        const chat = lastEvent.data;
+
+        if (!chat) {
+          return;
+        }
+
+        setMessages((previous) => [
+          ...previous,
+          {
+            id:
+              `${Date.now()}-${previous.length}`,
+            userId: chat.userId,
+            name:
+              chat.displayName ||
+              chat.username ||
+              'Player',
+            avatarUrl:
+              chat.avatarUrl || null,
+            message:
+              chat.message || '',
+          },
+        ]);
+
+        break;
+      }
+
+      case 'GAME_OVER':
+        navigation.replace('GameOver');
+        break;
+
+      default:
+        break;
+    }
+  }, [
+    lastEvent,
+    navigation,
+  ]);
+
+  const activityMessage =
+    lastEvent?.type === 'NIGHT_ACTIVITY'
+      ? lastEvent?.data?.message ||
+        'A player has completed their night action.'
+      : 'A player has completed their night action.';
 
   return (
     <Screen>
@@ -51,9 +111,11 @@ export default function ObserverScreen({
       >
 
         {/* HEADER */}
+
         <View style={styles.header}>
 
           <View>
+
             <Text style={styles.eyebrow}>
               DECEPTION AROUND US
             </Text>
@@ -61,18 +123,24 @@ export default function ObserverScreen({
             <Text style={styles.title}>
               OBSERVER
             </Text>
+
           </View>
 
           <View style={styles.badge}>
+
             <Text style={styles.badgeText}>
               DEAD
             </Text>
+
           </View>
 
         </View>
 
         {/* ELIMINATION */}
-        <GlassCard style={styles.eliminatedCard}>
+
+        <GlassCard
+          style={styles.eliminatedCard}
+        >
 
           <Text style={styles.icon}>
             ◈
@@ -89,8 +157,31 @@ export default function ObserverScreen({
 
         </GlassCard>
 
+        {/* CURRENT ROLE */}
+
+        <GlassCard
+          style={styles.roleCard}
+        >
+
+          <Text style={styles.roleLabel}>
+            YOUR ROLE
+          </Text>
+
+          <Text style={styles.roleText}>
+            {yourRole || 'HIDDEN'}
+          </Text>
+
+          <Text style={styles.roleDescription}>
+            Your role is visible only to you.
+          </Text>
+
+        </GlassCard>
+
         {/* NIGHT ACTIVITY */}
-        <GlassCard style={styles.activityCard}>
+
+        <GlassCard
+          style={styles.activityCard}
+        >
 
           <Text style={styles.sectionLabel}>
             NIGHT {String(roundNumber).padStart(2, '0')}
@@ -101,27 +192,33 @@ export default function ObserverScreen({
           </Text>
 
           <View style={styles.activityRow}>
+
             <View style={styles.dot} />
 
             <Text style={styles.activityText}>
-              A player has completed their night action.
+              {activityMessage}
             </Text>
+
           </View>
 
           <View style={styles.activityRow}>
+
             <View style={styles.dot} />
 
             <Text style={styles.activityText}>
-              Waiting for morning...
+              You can observe public game events.
             </Text>
+
           </View>
 
         </GlassCard>
 
         {/* DISCUSSION */}
+
         <View style={styles.sectionHeader}>
 
           <View>
+
             <Text style={styles.sectionTitle}>
               DISCUSSION
             </Text>
@@ -129,41 +226,62 @@ export default function ObserverScreen({
             <Text style={styles.sectionSubtitle}>
               You can read, but cannot participate.
             </Text>
+
           </View>
 
         </View>
 
         <GlassCard>
 
-          {messages.map((item) => (
-            <View
-              key={item.id}
-              style={styles.messageRow}
-            >
+          {messages.length === 0 ? (
 
-              <Avatar
-                name={item.name}
-                size={38}
-              />
+            <Text style={styles.emptyText}>
+              No discussion messages yet.
+            </Text>
 
-              <View style={styles.messageContent}>
+          ) : (
 
-                <Text style={styles.messageName}>
-                  {item.name}
-                </Text>
+            messages.map((item) => (
 
-                <Text style={styles.messageText}>
-                  {item.message}
-                </Text>
+              <View
+                key={item.id}
+                style={styles.messageRow}
+              >
+
+                <Avatar
+                  uri={item.avatarUrl}
+                  name={item.name}
+                  size={38}
+                />
+
+                <View
+                  style={styles.messageContent}
+                >
+
+                  <Text
+                    style={styles.messageName}
+                  >
+                    {item.name}
+                  </Text>
+
+                  <Text
+                    style={styles.messageText}
+                  >
+                    {item.message}
+                  </Text>
+
+                </View>
 
               </View>
 
-            </View>
-          ))}
+            ))
+
+          )}
 
         </GlassCard>
 
         {/* DISABLED CHAT */}
+
         <View style={styles.disabledChat}>
 
           <Text style={styles.disabledText}>
@@ -210,7 +328,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 10,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    backgroundColor:
+      'rgba(239, 68, 68, 0.12)',
     borderWidth: 1,
     borderColor: colors.danger,
   },
@@ -248,6 +367,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  roleCard: {
+    marginBottom: spacing.xl,
+  },
+
+  roleLabel: {
+    color: colors.textMuted,
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+    letterSpacing: 1.2,
+    marginBottom: 7,
+  },
+
+  roleText: {
+    color: colors.primary,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 20,
+    marginBottom: 5,
+  },
+
+  roleDescription: {
+    color: colors.textSecondary,
+    fontFamily: 'Inter',
+    fontSize: 12,
+  },
+
   activityCard: {
     marginBottom: spacing.xl,
   },
@@ -282,9 +426,11 @@ const styles = StyleSheet.create({
   },
 
   activityText: {
+    flex: 1,
     color: colors.textSecondary,
     fontFamily: 'Inter',
     fontSize: 12,
+    lineHeight: 18,
   },
 
   sectionHeader: {
@@ -328,6 +474,14 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
+  emptyText: {
+    color: colors.textMuted,
+    fontFamily: 'Inter',
+    fontSize: 12,
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+
   disabledChat: {
     marginTop: spacing.md,
     padding: 14,
@@ -345,3 +499,4 @@ const styles = StyleSheet.create({
   },
 
 });
+

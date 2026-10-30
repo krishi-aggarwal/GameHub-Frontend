@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+
+import React, {
+  useState,
+} from 'react';
 
 import {
   Pressable,
@@ -15,41 +18,61 @@ import GlassButton from '../../components/GlassButton';
 import colors from '../../theme/colors';
 import spacing from '../../theme/spacing';
 
-const lessons = [
+const sections = [
   {
-    title: 'GameHub Basics',
-    content:
-      'GameHub is a multiplayer platform where players can discover games, create rooms, invite others and play together in real time.',
-  },
-  {
-    title: 'Create or Join',
-    content:
-      'Choose a game from the catalog. Create a room to become its host, or join an existing room using its room code.',
+    title: 'GameHub',
+    content: [
+      {
+        heading: 'What is GameHub?',
+        text:
+          'GameHub is a multiplayer gaming platform where players can discover games, create rooms, invite friends and play together in real time.',
+      },
+      {
+        heading: 'How it works',
+        text:
+          'Choose a game from the catalog, create a room or join an existing room using its room code. Once everyone is ready, the host starts the game.',
+      },
+    ],
   },
   {
     title: 'Deception Around Us',
-    content:
-      'Players receive hidden roles. Some players are Predators while others must survive and identify them.',
-  },
-  {
-    title: 'Night Phase',
-    content:
-      'Predators can eliminate a player. The Doctor can protect a player. The Detective can investigate a player. Innocents wait for morning.',
-  },
-  {
-    title: 'Day Phase',
-    content:
-      'Players discuss what happened. Living players can use the real-time chat to share information and suspicions.',
-  },
-  {
-    title: 'Voting',
-    content:
-      'Living players vote for a suspected player. The player receiving the most votes is eliminated. A tie results in no elimination.',
-  },
-  {
-    title: 'Winning',
-    content:
-      'The Predators win when they equal or outnumber the remaining non-Predators. The Innocents win when all Predators are eliminated.',
+    content: [
+      {
+        heading: 'The Game',
+        text:
+          'Deception Around Us is a social deduction game where players must work together to discover hidden Predators among them. Everyone has a secret role, but only the Predators know who they are.',
+      },
+      {
+        heading: 'Your Objective',
+        text:
+          'If you are an Innocent, your goal is to identify and eliminate the Predators. If you are a Predator, your goal is to secretly eliminate other players and survive until you gain control of the game.',
+      },
+      {
+        heading: 'Roles',
+        text:
+          'PREDATOR — secretly eliminates players during the Night phase.\n\nDOCTOR — protects a player from being eliminated during the Night.\n\nDETECTIVE — investigates a player and receives information about their role.\n\nINNOCENT — has no special ability and must use discussion, observation and voting to find the Predators.',
+      },
+      {
+        heading: 'Night Phase',
+        text:
+          'The Night phase is when special roles perform their actions. Predators choose a player to eliminate, the Doctor chooses someone to protect, and the Detective investigates a player.',
+      },
+      {
+        heading: 'Day Phase',
+        text:
+          'Everyone discovers what happened during the Night. Living players discuss the events, share suspicions and try to identify the Predators. The host can start the Voting phase when the discussion is ready.',
+      },
+      {
+        heading: 'Voting',
+        text:
+          'Living players vote for the person they believe is a Predator. The player receiving the most votes is eliminated. If the vote ends in a tie, nobody is eliminated.',
+      },
+      {
+        heading: 'Winning',
+        text:
+          'The Innocents win when all Predators have been eliminated. The Predators win when they equal or outnumber the remaining non-Predators.',
+      },
+    ],
   },
 ];
 
@@ -57,9 +80,11 @@ export default function TutorialScreen({
   navigation,
 }) {
 
-  const [selected, setSelected] = useState(0);
+  const [selectedSection, setSelectedSection] =
+    useState(0);
 
-  const lesson = lessons[selected];
+  const section =
+    sections[selectedSection];
 
   return (
     <Screen>
@@ -68,6 +93,8 @@ export default function TutorialScreen({
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
       >
+
+        {/* HEADER */}
 
         <Text style={styles.eyebrow}>
           GAMEHUB GUIDE
@@ -78,40 +105,37 @@ export default function TutorialScreen({
         </Text>
 
         <Text style={styles.subtitle}>
-          Everything you need to know before joining a game.
+          Learn the GameHub experience and discover
+          how Deception Around Us works.
         </Text>
 
-        {/* LESSONS */}
+        {/* SECTION SELECTOR */}
 
-        <View style={styles.lessonList}>
+        <View style={styles.sectionSelector}>
 
-          {lessons.map((item, index) => {
+          {sections.map((item, index) => {
 
-            const active = index === selected;
+            const active =
+              index === selectedSection;
 
             return (
               <Pressable
                 key={item.title}
-                onPress={() => setSelected(index)}
+                onPress={() =>
+                  setSelectedSection(index)
+                }
                 style={[
-                  styles.lesson,
-                  active && styles.activeLesson,
+                  styles.sectionButton,
+                  active &&
+                    styles.activeSectionButton,
                 ]}
               >
 
                 <Text
                   style={[
-                    styles.lessonNumber,
-                    active && styles.activeNumber,
-                  ]}
-                >
-                  {String(index + 1).padStart(2, '0')}
-                </Text>
-
-                <Text
-                  style={[
-                    styles.lessonTitle,
-                    active && styles.activeTitle,
+                    styles.sectionButtonText,
+                    active &&
+                      styles.activeSectionButtonText,
                   ]}
                 >
                   {item.title}
@@ -123,19 +147,51 @@ export default function TutorialScreen({
 
         </View>
 
-        {/* CONTENT */}
+        {/* SECTION CONTENT */}
 
         <GlassCard style={styles.contentCard}>
 
-          <Text style={styles.contentTitle}>
-            {lesson.title}
-          </Text>
+          <View style={styles.cardHeader}>
 
-          <Text style={styles.content}>
-            {lesson.content}
-          </Text>
+            <Text style={styles.cardEyebrow}>
+              {selectedSection === 0
+                ? 'THE PLATFORM'
+                : 'SOCIAL DEDUCTION'}
+            </Text>
+
+            <Text style={styles.cardTitle}>
+              {section.title}
+            </Text>
+
+          </View>
+
+          {section.content.map((item, index) => (
+
+            <View
+              key={item.heading}
+              style={[
+                styles.topic,
+                index !==
+                  section.content.length - 1 &&
+                  styles.topicSpacing,
+              ]}
+            >
+
+              <Text style={styles.topicHeading}>
+                {item.heading}
+              </Text>
+
+              <Text style={styles.topicText}>
+                {item.text}
+              </Text>
+
+            </View>
+
+          ))}
 
         </GlassCard>
+
+        {/* BACK */}
 
         <GlassButton
           title="BACK TO GAMEHUB"
@@ -158,6 +214,8 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
+  /* HEADER */
+
   eyebrow: {
     color: colors.primary,
     fontFamily: 'Inter-Bold',
@@ -178,21 +236,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     marginTop: 8,
-    marginBottom: spacing.xxl,
+    marginBottom: spacing.xl,
   },
 
-  lessonList: {
+  /* SECTION SELECTOR */
+
+  sectionSelector: {
+    flexDirection: 'row',
     gap: 8,
     marginBottom: spacing.xl,
   },
 
-  lesson: {
-    flexDirection: 'row',
+  sectionButton: {
+    flex: 1,
+
+    minHeight: 48,
+
     alignItems: 'center',
+    justifyContent: 'center',
 
-    minHeight: 54,
-
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
 
     borderRadius: 14,
 
@@ -202,48 +265,69 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
 
-  activeLesson: {
+  activeSectionButton: {
+    backgroundColor:
+      'rgba(139, 92, 246, 0.10)',
+
     borderColor: colors.primary,
-    backgroundColor: 'rgba(139, 92, 246, 0.10)',
   },
 
-  lessonNumber: {
-    width: 30,
-    color: colors.textMuted,
-    fontFamily: 'Inter-Bold',
-    fontSize: 10,
-  },
-
-  activeNumber: {
-    color: colors.primary,
-  },
-
-  lessonTitle: {
+  sectionButtonText: {
     color: colors.textSecondary,
     fontFamily: 'Inter-SemiBold',
-    fontSize: 13,
+    fontSize: 12,
   },
 
-  activeTitle: {
+  activeSectionButtonText: {
     color: colors.text,
+    fontFamily: 'Inter-Bold',
   },
+
+  /* CONTENT */
 
   contentCard: {
     marginBottom: spacing.xl,
   },
 
-  contentTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 19,
-    marginBottom: 10,
+  cardHeader: {
+    marginBottom: spacing.xl,
   },
 
-  content: {
+  cardEyebrow: {
+    color: colors.primary,
+    fontFamily: 'Inter-Bold',
+    fontSize: 9,
+    letterSpacing: 1.4,
+    marginBottom: 6,
+  },
+
+  cardTitle: {
+    color: colors.text,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 22,
+  },
+
+  topic: {
+    paddingBottom: 2,
+  },
+
+  topicSpacing: {
+    marginBottom: spacing.xl,
+  },
+
+  topicHeading: {
+    color: colors.text,
+    fontFamily: 'Inter-Bold',
+    fontSize: 15,
+    marginBottom: 7,
+  },
+
+  topicText: {
     color: colors.textSecondary,
     fontFamily: 'Inter',
-    fontSize: 14,
-    lineHeight: 23,
+    fontSize: 13,
+    lineHeight: 21,
   },
 
 });
+

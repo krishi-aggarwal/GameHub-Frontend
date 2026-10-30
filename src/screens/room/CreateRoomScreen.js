@@ -1,12 +1,11 @@
-
 import React, { useState } from 'react';
 
 import {
   View,
   Text,
   StyleSheet,
-  Alert,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 
 import Screen from '../../components/Screen';
@@ -14,14 +13,20 @@ import GlassCard from '../../components/GlassCard';
 import GlassButton from '../../components/GlassButton';
 
 import colors from '../../theme/colors';
+import spacing from '../../theme/spacing';
 
 import { createRoom } from '../../api/roomApi';
 import { getApiErrorMessage } from '../../api/apiUtils';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 
-export default function CreateRoomScreen({ navigation, route }) {
+export default function CreateRoomScreen({
+  navigation,
+  route,
+}) {
 
   /*
-   * Game Catalog should pass the selected gameId.
+   * Game Catalog passes the selected game.
    *
    * Example:
    * navigation.navigate('CreateRoom', {
@@ -29,19 +34,24 @@ export default function CreateRoomScreen({ navigation, route }) {
    *   gameName: 'Deception Around Us',
    * });
    */
-  const gameId = route?.params?.gameId;
-  const gameName =
-    route?.params?.gameName || 'Selected Game';
 
-  const [loading, setLoading] = useState(false);
+  const gameId =
+    route?.params?.gameId;
+
+  const gameName =
+    route?.params?.gameName ||
+    'Selected Game';
+  const { setActiveRoomCode } = useAuth();
+  const { showToast } = useToast();
+
+  const [loading, setLoading] =
+    useState(false);
 
   const handleCreateRoom = async () => {
 
     if (!gameId) {
-      Alert.alert(
-        'Game Not Selected',
-        'Please select a game before creating a room.'
-      );
+
+      showToast('Please select a game before creating a room.');
 
       return;
     }
@@ -57,20 +67,28 @@ export default function CreateRoomScreen({ navigation, route }) {
        *   gameId: Long
        * }
        */
-      const room = await createRoom({
-        gameId: Number(gameId),
-      });
+
+      const room =
+        await createRoom({
+          gameId: Number(gameId),
+        });
 
       if (!room?.roomCode) {
+
         throw new Error(
           'Room was created but no room code was returned.'
         );
       }
 
-      // Open the real lobby
-      navigation.replace('Lobby', {
-        roomCode: room.roomCode,
-      });
+      await setActiveRoomCode(room.roomCode);
+
+      // Open the real lobby.
+      navigation.replace(
+        'Lobby',
+        {
+          roomCode: room.roomCode,
+        }
+      );
 
     } catch (error) {
 
@@ -79,12 +97,8 @@ export default function CreateRoomScreen({ navigation, route }) {
         error
       );
 
-      Alert.alert(
-        'Could Not Create Room',
-        getApiErrorMessage(
-          error,
-          'Something went wrong while creating the room.'
-        )
+      showToast(
+        getApiErrorMessage(error, 'Something went wrong while creating the room.')
       );
 
     } finally {
@@ -99,36 +113,86 @@ export default function CreateRoomScreen({ navigation, route }) {
 
       <View style={styles.container}>
 
+        {/* TOP BAR */}
+
+        <View style={styles.topBar}>
+
+          <Pressable
+            style={styles.backButton}
+            onPress={() =>
+              navigation.goBack()
+            }
+            disabled={loading}
+          >
+
+            <Text style={styles.backArrow}>
+              ‹
+            </Text>
+
+            <Text style={styles.backText}>
+              BACK
+            </Text>
+
+          </Pressable>
+
+        </View>
+
         {/* HEADER */}
+
         <View style={styles.header}>
 
           <Text style={styles.eyebrow}>
-            GAME ROOM
+            GAMEHUB
           </Text>
 
           <Text style={styles.title}>
-            Create Room
+            Create a Room
           </Text>
 
           <Text style={styles.subtitle}>
-            Start a multiplayer session and invite your friends.
+            Start a multiplayer session and
+            invite your friends to play.
           </Text>
 
         </View>
 
+        {/* ROOM CARD */}
+
         <GlassCard style={styles.card}>
 
-          <Text style={styles.label}>
+          <Text style={styles.sectionLabel}>
             SELECTED GAME
           </Text>
 
-          <Text style={styles.gameName}>
-            {gameName}
-          </Text>
+          <View style={styles.gamePreview}>
+
+            <View style={styles.gameIcon}>
+
+              <Text style={styles.gameIconText}>
+                ▶
+              </Text>
+
+            </View>
+
+            <View style={styles.gameInfo}>
+
+              <Text style={styles.gameName}>
+                {gameName}
+              </Text>
+
+              <Text style={styles.gameStatus}>
+                READY TO PLAY
+              </Text>
+
+            </View>
+
+          </View>
+
+          <View style={styles.divider} />
 
           <Text style={styles.info}>
-            Your room will use the multiplayer settings
-            configured for this game.
+            Your room will use the multiplayer
+            settings configured for this game.
           </Text>
 
           <GlassButton
@@ -148,13 +212,6 @@ export default function CreateRoomScreen({ navigation, route }) {
             />
           )}
 
-          <GlassButton
-            title="BACK"
-            variant="secondary"
-            onPress={() => navigation.goBack()}
-            disabled={loading}
-          />
-
         </GlassCard>
 
       </View>
@@ -170,7 +227,7 @@ const styles = StyleSheet.create({
 
     justifyContent: 'center',
 
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing.xl,
 
     maxWidth: 520,
 
@@ -179,20 +236,60 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
 
+  /* TOP BAR */
+
+  topBar: {
+    marginBottom: spacing.lg,
+  },
+
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+
+    alignSelf: 'flex-start',
+
+    paddingVertical: 8,
+    paddingRight: 12,
+  },
+
+  backArrow: {
+    color: colors.text,
+
+    fontFamily: 'Inter',
+
+    fontSize: 28,
+
+    lineHeight: 28,
+
+    marginRight: 6,
+  },
+
+  backText: {
+    color: colors.textSecondary,
+
+    fontFamily: 'Inter-Bold',
+
+    fontSize: 9,
+
+    letterSpacing: 1.2,
+  },
+
+  /* HEADER */
+
   header: {
-    marginBottom: 28,
+    marginBottom: spacing.xl,
   },
 
   eyebrow: {
     color: colors.primary,
 
-    fontFamily: 'Inter-SemiBold',
+    fontFamily: 'Inter-Bold',
 
-    fontSize: 12,
+    fontSize: 10,
 
-    letterSpacing: 1.5,
+    letterSpacing: 2,
 
-    marginBottom: 8,
+    marginBottom: 6,
   },
 
   title: {
@@ -208,25 +305,68 @@ const styles = StyleSheet.create({
 
     fontFamily: 'Inter',
 
-    fontSize: 14,
+    fontSize: 13,
 
-    lineHeight: 21,
+    lineHeight: 20,
 
     marginTop: 8,
   },
 
+  /* CARD */
+
   card: {
-    padding: 24,
+    padding: spacing.xl,
   },
 
-  label: {
+  sectionLabel: {
     color: colors.textMuted,
 
-    fontFamily: 'Inter-SemiBold',
+    fontFamily: 'Inter-Bold',
 
-    fontSize: 11,
+    fontSize: 9,
 
-    letterSpacing: 1.2,
+    letterSpacing: 1.3,
+
+    marginBottom: spacing.md,
+  },
+
+  /* SELECTED GAME */
+
+  gamePreview: {
+    flexDirection: 'row',
+
+    alignItems: 'center',
+  },
+
+  gameIcon: {
+    width: 50,
+    height: 50,
+
+    borderRadius: 15,
+
+    backgroundColor: colors.surfaceStrong,
+
+    borderWidth: 1,
+
+    borderColor: colors.border,
+
+    justifyContent: 'center',
+
+    alignItems: 'center',
+
+    marginRight: spacing.md,
+  },
+
+  gameIconText: {
+    color: colors.primary,
+
+    fontFamily: 'Inter-Bold',
+
+    fontSize: 17,
+  },
+
+  gameInfo: {
+    flex: 1,
   },
 
   gameName: {
@@ -234,28 +374,47 @@ const styles = StyleSheet.create({
 
     fontFamily: 'Inter-Bold',
 
-    fontSize: 21,
+    fontSize: 19,
 
-    marginTop: 8,
+    marginBottom: 5,
   },
+
+  gameStatus: {
+    color: colors.success,
+
+    fontFamily: 'Inter-Bold',
+
+    fontSize: 8,
+
+    letterSpacing: 1.1,
+  },
+
+  divider: {
+    height: 1,
+
+    backgroundColor: colors.border,
+
+    marginVertical: spacing.lg,
+  },
+
+  /* INFO */
 
   info: {
     color: colors.textSecondary,
 
     fontFamily: 'Inter',
 
-    fontSize: 13,
+    fontSize: 12,
 
-    lineHeight: 20,
+    lineHeight: 19,
 
-    marginTop: 12,
-
-    marginBottom: 24,
+    marginBottom: spacing.lg,
   },
 
+  /* LOADING */
+
   loader: {
-    marginTop: 12,
+    marginTop: spacing.md,
   },
 
 });
-

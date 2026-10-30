@@ -1,7 +1,11 @@
-import React, { useState } from 'react';
+
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,231 +21,820 @@ import Avatar from '../../components/Avatar';
 import colors from '../../theme/colors';
 import spacing from '../../theme/spacing';
 
-export default function VotingScreen({ navigation, route }) {
+import {
+  submitVote,
+  getGameResult,
+} from '../../api/deceptionApi';
+
+import {
+  useGame,
+} from '../../context/GameContext';
+
+import {
+  useAuth,
+} from '../../context/AuthContext';
+
+import {
+  getApiErrorMessage,
+} from '../../api/apiUtils';
+import { useToast } from '../../context/ToastContext';
+
+export default function VotingScreen({
+  navigation,
+}) {
 
   const {
-    sessionId = 'demo-session',
-    roundNumber = 1,
-    isAlive = true,
-  } = route?.params || {};
+    sessionId,
+    gamePhase,
+    roundNumber,
+    players,
+    yourUsername,
+    yourRole,
+    lastEvent,
+    fetchGameState,
+  } = useGame();
 
-  const players = [
-    {
-      id: 1,
-      name: 'You',
-      avatarUrl: null,
-      alive: true,
-    },
-    {
-      id: 2,
-      name: 'Player 02',
-      avatarUrl: null,
-      alive: true,
-    },
-    {
-      id: 3,
-      name: 'Player 03',
-      avatarUrl: null,
-      alive: true,
-    },
-    {
-      id: 4,
-      name: 'Player 04',
-      avatarUrl: null,
-      alive: true,
-    },
-  ];
+  const {
+    user,
+  } = useAuth();
+  const { showToast } = useToast();
 
-  const [selectedPlayer, setSelectedPlayer] =
-    useState(null);
+  const [
+    selectedPlayer,
+    setSelectedPlayer,
+  ] = useState(null);
 
-  const [submitted, setSubmitted] =
-    useState(false);
+  const [
+    submitted,
+    setSubmitted,
+  ] = useState(false);
 
-  function handleVote() {
+  const [
+    submitting,
+    setSubmitting,
+  ] = useState(false);
 
-    if (!selectedPlayer) {
-      Alert.alert(
-        'Select a Player',
-        'Choose a player before submitting your vote.'
+  /*
+   * CURRENT USER
+   */
+
+  const currentUserId =
+    user?.userId ??
+    user?.id ??
+    user?.userID ??
+    user?.user?.userId ??
+    user?.user?.id ??
+    null;
+
+  /*
+   * CURRENT PLAYER
+   */
+
+  const isSamePlayer =
+    (player) => {
+
+      if (
+        !player ||
+        currentUserId == null ||
+        player.userId == null
+      ) {
+        return false;
+      }
+
+      return (
+        String(player.userId) ===
+        String(currentUserId)
+      );
+    };
+
+  const currentPlayer =
+    useMemo(
+      () =>
+        players.find(
+          (player) =>
+            isSamePlayer(player)
+        ),
+      [
+        players,
+        currentUserId,
+      ]
+    );
+
+  const isAlive =
+    currentPlayer
+      ? currentPlayer.alive
+      : true;
+
+  /*
+   * ELIGIBLE TARGETS
+   *
+   * Never include yourself.
+   */
+
+  const targetPlayers =
+    useMemo(
+      () =>
+        players.filter(
+          (player) =>
+            player?.alive &&
+            !isSamePlayer(player)
+        ),
+      [
+        players,
+        currentUserId,
+      ]
+    );
+
+  /*
+   * RESET WHEN NEW VOTING PHASE / ROUND
+   */
+
+  useEffect(() => {
+
+    if (
+      gamePhase === 'VOTING'
+    ) {
+      setSelectedPlayer(null);
+      setSubmitted(false);
+      setSubmitting(false);
+    }
+
+  }, [
+    gamePhase,
+    roundNumber,
+  ]);
+
+  /*
+   * PHASE NAVIGATION
+   */
+
+  useEffect(() => {
+
+    if (
+      gamePhase === 'GAME_OVER'
+    ) {
+      navigation.replace(
+        'GameOver'
       );
 
       return;
     }
 
-    /*
-     * Later:
-     *
-     * POST
-     * /api/deception/rooms/{sessionId}/vote
-     *
-     * {
-     *   targetUserId
-     * }
-     */
+    if (
+      gamePhase === 'NIGHT'
+    ) {
+      navigation.replace(
+        'Night'
+      );
 
-    setSubmitted(true);
+      return;
+    }
 
-    Alert.alert(
-      'Vote Submitted',
-      'Your vote has been recorded.',
-      [
-        {
-          text: 'OK',
-        },
-      ]
-    );
+    if (
+      gamePhase === 'DAY'
+    ) {
+      navigation.replace(
+        'Day'
+      );
+    }
+
+  }, [
+    gamePhase,
+    navigation,
+  ]);
+
+  /*
+   * SOCKET EVENTS
+   */
+
+  useEffect(() => {
+
+    if (!lastEvent) {
+      return;
+    }
+
+    switch (
+      lastEvent.type
+    ) {
+
+      case 'VOTING_STARTED':
+        fetchGameState(
+          sessionId
+        ).catch(() => {});
+        break;
+
+      case 'VOTING_RESOLVED':
+      case 'PLAYER_ELIMINATED':
+
+        fetchGameState(
+          sessionId
+        ).catch(() => {});
+
+        break;
+
+      case 'GAME_OVER':
+
+        navigation.replace(
+          'GameOver'
+        );
+
+        break;
+
+      case 'NIGHT_STARTED':
+
+        navigation.replace(
+          'Night'
+        );
+
+        break;
+
+      default:
+        break;
+    }
+
+  }, [
+    lastEvent,
+    sessionId,
+    fetchGameState,
+    navigation,
+  ]);
+
+  /*
+   * VOTE
+   */
+
+  async function handleVote() {
+
+    if (!sessionId) {
+
+      showToast('Game session not found.');
+
+      return;
+    }
+
+    if (!isAlive) {
+
+      showToast('You have been eliminated and cannot vote.');
+
+      return;
+    }
+
+    if (!selectedPlayer) {
+
+      showToast('Choose a player before submitting your vote.');
+
+      return;
+    }
+
+    if (
+      submitted ||
+      submitting
+    ) {
+      return;
+    }
+
+    const target =
+      targetPlayers.find(
+        (player) =>
+          String(player.userId) ===
+          String(selectedPlayer)
+      );
+
+    if (!target) {
+
+      showToast('That player is no longer eligible.');
+
+      setSelectedPlayer(null);
+      return;
+    }
+
+    try {
+
+      setSubmitting(
+        true
+      );
+
+      await submitVote(
+        sessionId,
+        selectedPlayer
+      );
+
+      setSubmitted(
+        true
+      );
+
+      await fetchGameState(
+        sessionId
+      );
+
+      showToast('Vote recorded.', 'success');
+
+    } catch (error) {
+
+      console.error(
+        'Vote failed:',
+        error
+      );
+
+      showToast(
+        getApiErrorMessage(error, 'Unable to submit your vote.')
+      );
+
+    } finally {
+
+      setSubmitting(
+        false
+      );
+    }
+  }
+
+  /*
+   * GAME OVER FALLBACK
+   */
+
+  async function handleGameOver() {
+
+    try {
+
+      await getGameResult(
+        sessionId
+      );
+
+    } catch (error) {
+
+      console.log(
+        'Game result fetch failed:',
+        error
+      );
+
+    } finally {
+
+      navigation.replace(
+        'GameOver'
+      );
+    }
   }
 
   return (
     <Screen>
+
       <ScrollView
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={
+          styles.container
+        }
+        showsVerticalScrollIndicator={
+          false
+        }
       >
 
         {/* HEADER */}
-        <View style={styles.header}>
+
+        <View
+          style={styles.header}
+        >
 
           <View>
-            <Text style={styles.eyebrow}>
+
+            <Text
+              style={
+                styles.eyebrow
+              }
+            >
               DECEPTION AROUND US
             </Text>
 
-            <Text style={styles.title}>
+            <Text
+              style={
+                styles.title
+              }
+            >
               VOTING
             </Text>
+
           </View>
 
-          <View style={styles.roundBadge}>
-            <Text style={styles.roundText}>
-              DAY {String(roundNumber).padStart(2, '0')}
+          <View
+            style={
+              styles.roundBadge
+            }
+          >
+
+            <Text
+              style={
+                styles.roundText
+              }
+            >
+              DAY{' '}
+              {String(
+                roundNumber
+              ).padStart(2, '0')}
             </Text>
+
           </View>
 
         </View>
 
-        {/* EXPLANATION */}
-        <GlassCard style={styles.infoCard}>
+        {/* IDENTITY */}
 
-          <Text style={styles.infoTitle}>
+        <GlassCard
+          style={
+            styles.identityCard
+          }
+        >
+
+          <Text
+            style={
+              styles.identityLabel
+            }
+          >
+            YOUR STATUS
+          </Text>
+
+          <View
+            style={
+              styles.identityRow
+            }
+          >
+
+            <View
+              style={
+                styles.identityInfo
+              }
+            >
+
+              <Text
+                style={
+                  styles.identityName
+                }
+              >
+                {yourUsername ||
+                  'YOU'}
+              </Text>
+
+              <Text
+                style={
+                  styles.identityRole
+                }
+              >
+                {String(
+                  yourRole ||
+                  'PLAYER'
+                ).toUpperCase()}
+              </Text>
+
+            </View>
+
+            <View
+              style={[
+                styles.aliveBadge,
+                !isAlive &&
+                  styles.deadBadge,
+              ]}
+            >
+
+              <Text
+                style={[
+                  styles.aliveBadgeText,
+                  !isAlive &&
+                    styles.deadBadgeText,
+                ]}
+              >
+                {isAlive
+                  ? 'ALIVE'
+                  : 'ELIMINATED'}
+              </Text>
+
+            </View>
+
+          </View>
+
+        </GlassCard>
+
+        {/* EXPLANATION */}
+
+        <GlassCard
+          style={
+            styles.infoCard
+          }
+        >
+
+          <Text
+            style={
+              styles.infoTitle
+            }
+          >
             Who do you suspect?
           </Text>
 
-          <Text style={styles.infoText}>
-            Choose one living player. The player with
-            the most votes will be eliminated.
+          <Text
+            style={
+              styles.infoText
+            }
+          >
+            Choose one living player.
+            The player with the most
+            votes will be eliminated.
           </Text>
 
-          <Text style={styles.warningText}>
+          <Text
+            style={
+              styles.warningText
+            }
+          >
             Ties result in no elimination.
           </Text>
 
         </GlassCard>
 
         {/* PLAYER LIST */}
-        <Text style={styles.sectionTitle}>
+
+        <Text
+          style={
+            styles.sectionTitle
+          }
+        >
           PLAYERS
         </Text>
 
-        <Text style={styles.sectionSubtitle}>
-          Select a player to cast your vote.
+        <Text
+          style={
+            styles.sectionSubtitle
+          }
+        >
+          Select a living player to
+          cast your vote.
         </Text>
 
-        <View style={styles.players}>
+        <View
+          style={
+            styles.players
+          }
+        >
 
-          {players
-            .filter((player) => player.alive)
-            .filter((player) => player.id !== 1)
-            .map((player) => {
+          {targetPlayers.length ===
+          0 ? (
 
-              const selected =
-                selectedPlayer === player.id;
+            <GlassCard
+              style={
+                styles.emptyCard
+              }
+            >
 
-              return (
-                <Pressable
-                  key={player.id}
-                  onPress={() =>
-                    !submitted &&
-                    setSelectedPlayer(player.id)
-                  }
-                  style={[
-                    styles.player,
-                    selected &&
-                      styles.selectedPlayer,
-                    submitted &&
-                      styles.disabledPlayer,
-                  ]}
-                >
+              <Text
+                style={
+                  styles.emptyText
+                }
+              >
+                No eligible players
+                available.
+              </Text>
 
-                  <Avatar
-                    uri={player.avatarUrl}
-                    name={player.name}
-                    size={50}
-                  />
+            </GlassCard>
 
-                  <View style={styles.playerInfo}>
-                    <Text style={styles.playerName}>
-                      {player.name}
-                    </Text>
+          ) : (
 
-                    <Text style={styles.aliveText}>
-                      ALIVE
-                    </Text>
-                  </View>
+            targetPlayers.map(
+              (player) => {
 
-                  {selected && (
-                    <View style={styles.voteBadge}>
-                      <Text style={styles.voteBadgeText}>
-                        YOUR VOTE
+                const selected =
+                  String(
+                    selectedPlayer
+                  ) ===
+                  String(
+                    player.userId
+                  );
+
+                const playerName =
+                  player.displayName ||
+                  player.username ||
+                  `Player ${player.userId}`;
+
+                return (
+                  <Pressable
+                    key={
+                      String(
+                        player.userId
+                      )
+                    }
+                    onPress={() => {
+
+                      if (
+                        !submitted &&
+                        !submitting &&
+                        isAlive
+                      ) {
+                        setSelectedPlayer(
+                          player.userId
+                        );
+                      }
+
+                    }}
+                    style={[
+                      styles.player,
+                      selected &&
+                        styles.selectedPlayer,
+                      submitted &&
+                        styles.disabledPlayer,
+                    ]}
+                  >
+
+                    <Avatar
+                      uri={
+                        player.avatarUrl
+                      }
+                      name={
+                        playerName
+                      }
+                      size={50}
+                    />
+
+                    <View
+                      style={
+                        styles.playerInfo
+                      }
+                    >
+
+                      <Text
+                        style={
+                          styles.playerName
+                        }
+                      >
+                        {playerName}
                       </Text>
-                    </View>
-                  )}
 
-                </Pressable>
-              );
-            })}
+                      <Text
+                        style={
+                          styles.aliveText
+                        }
+                      >
+                        ALIVE
+                      </Text>
+
+                    </View>
+
+                    {selected && (
+
+                      <View
+                        style={
+                          styles.voteBadge
+                        }
+                      >
+
+                        <Text
+                          style={
+                            styles.voteBadgeText
+                          }
+                        >
+                          YOUR VOTE
+                        </Text>
+
+                      </View>
+
+                    )}
+
+                  </Pressable>
+                );
+              }
+            )
+
+          )}
 
         </View>
 
-        {/* SUBMIT */}
+        {/* SUBMIT / OBSERVER */}
+
         {isAlive ? (
+
           <GlassButton
             title={
-              submitted
+              submitting
+                ? 'SUBMITTING...'
+                : submitted
                 ? 'VOTE SUBMITTED'
                 : 'SUBMIT VOTE'
             }
-            onPress={handleVote}
+            onPress={
+              handleVote
+            }
             disabled={
-              !selectedPlayer || submitted
+              !selectedPlayer ||
+              submitted ||
+              submitting
             }
           />
-        ) : (
-          <GlassCard style={styles.observerCard}>
 
-            <Text style={styles.observerTitle}>
+        ) : (
+
+          <GlassCard
+            style={
+              styles.observerCard
+            }
+          >
+
+            <Text
+              style={
+                styles.observerTitle
+              }
+            >
               OBSERVER MODE
             </Text>
 
-            <Text style={styles.observerText}>
-              You have been eliminated and cannot vote.
+            <Text
+              style={
+                styles.observerText
+              }
+            >
+              You have been eliminated.
+              You can watch the voting phase
+              but cannot vote.
             </Text>
 
           </GlassCard>
+
+        )}
+
+        {/* WAITING */}
+
+        {submitted &&
+          isAlive && (
+
+          <GlassCard
+            style={
+              styles.waitingCard
+            }
+          >
+
+            <View
+              style={
+                styles.waitingHeader
+              }
+            >
+
+              <View
+                style={
+                  styles.waitingDot
+                }
+              />
+
+              <Text
+                style={
+                  styles.waitingTitle
+                }
+              >
+                VOTE LOCKED
+              </Text>
+
+            </View>
+
+            <Text
+              style={
+                styles.waitingText
+              }
+            >
+              Your vote is recorded.
+              Waiting for the remaining
+              living players to vote.
+            </Text>
+
+          </GlassCard>
+
+        )}
+
+        {/* GAME OVER FALLBACK */}
+
+        {gamePhase ===
+          'GAME_OVER' && (
+
+          <GlassButton
+            title="VIEW GAME RESULT"
+            onPress={
+              handleGameOver
+            }
+          />
+
         )}
 
         {/* INFO */}
-        <GlassCard style={styles.footerCard}>
 
-          <Text style={styles.footerText}>
-            Votes are private until the voting phase
-            resolves.
+        <GlassCard
+          style={
+            styles.footerCard
+          }
+        >
+
+          <Text
+            style={
+              styles.footerText
+            }
+          >
+            Votes remain private until
+            the voting phase resolves.
           </Text>
 
         </GlassCard>
 
       </ScrollView>
+
     </Screen>
   );
 }
@@ -287,6 +880,67 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontFamily: 'Inter-Bold',
     fontSize: 10,
+  },
+
+  identityCard: {
+    marginBottom: spacing.lg,
+  },
+
+  identityLabel: {
+    color: colors.textMuted,
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+    letterSpacing: 1.3,
+    marginBottom: 10,
+  },
+
+  identityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  identityInfo: {
+    flex: 1,
+  },
+
+  identityName: {
+    color: colors.text,
+    fontFamily: 'Inter-Bold',
+    fontSize: 18,
+  },
+
+  identityRole: {
+    color: colors.textSecondary,
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+    letterSpacing: 1,
+    marginTop: 4,
+  },
+
+  aliveBadge: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderWidth: 1,
+    borderColor: colors.success,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  aliveBadgeText: {
+    color: colors.success,
+    fontFamily: 'Inter-Bold',
+    fontSize: 9,
+    letterSpacing: 0.8,
+  },
+
+  deadBadge: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: colors.danger,
+  },
+
+  deadBadgeText: {
+    color: colors.danger,
   },
 
   infoCard: {
@@ -346,7 +1000,8 @@ const styles = StyleSheet.create({
 
   selectedPlayer: {
     borderColor: colors.primary,
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+    backgroundColor:
+      'rgba(139, 92, 246, 0.12)',
   },
 
   disabledPlayer: {
@@ -386,6 +1041,7 @@ const styles = StyleSheet.create({
 
   observerCard: {
     marginTop: 5,
+    borderColor: colors.warning,
   },
 
   observerTitle: {
@@ -399,6 +1055,49 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontFamily: 'Inter',
     fontSize: 13,
+    lineHeight: 19,
+  },
+
+  waitingCard: {
+    marginTop: spacing.lg,
+  },
+
+  waitingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 7,
+  },
+
+  waitingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+    marginRight: 8,
+  },
+
+  waitingTitle: {
+    color: colors.primary,
+    fontFamily: 'Inter-Bold',
+    fontSize: 13,
+  },
+
+  waitingText: {
+    color: colors.textSecondary,
+    fontFamily: 'Inter',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  emptyCard: {
+    paddingVertical: 24,
+  },
+
+  emptyText: {
+    color: colors.textMuted,
+    fontFamily: 'Inter',
+    fontSize: 13,
+    textAlign: 'center',
   },
 
   footerCard: {
@@ -414,3 +1113,4 @@ const styles = StyleSheet.create({
   },
 
 });
+

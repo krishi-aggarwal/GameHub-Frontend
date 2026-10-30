@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+
+import React, {
+  useState,
+} from 'react';
 
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,52 +17,113 @@ import GlassButton from '../../components/GlassButton';
 import colors from '../../theme/colors';
 import spacing from '../../theme/spacing';
 
+import {
+  createGame,
+} from '../../api/gameApi';
+
+import {
+  getApiErrorMessage,
+} from '../../api/apiUtils';
+import { useToast } from '../../context/ToastContext';
+
 export default function AdminCreateGameScreen({
   navigation,
 }) {
+  const [name, setName] =
+    useState('');
 
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [description, setDescription] = useState('');
+  const [slug, setSlug] =
+    useState('');
 
-  const [minPlayers, setMinPlayers] = useState('4');
-  const [maxPlayers, setMaxPlayers] = useState('15');
+  const [description, setDescription] =
+    useState('');
 
-  function handleCreateGame() {
+  const [minPlayers, setMinPlayers] =
+    useState('4');
+
+  const [maxPlayers, setMaxPlayers] =
+    useState('15');
+
+  const [loading, setLoading] =
+    useState(false);
+  const { showToast } = useToast();
+
+  async function handleCreateGame() {
+    const trimmedName =
+      name.trim();
+
+    const trimmedSlug =
+      slug.trim();
+
+    const trimmedDescription =
+      description.trim();
+
+    const min =
+      Number(minPlayers);
+
+    const max =
+      Number(maxPlayers);
 
     if (
-      !name.trim() ||
-      !slug.trim() ||
-      !description.trim()
+      !trimmedName ||
+      !trimmedSlug ||
+      !trimmedDescription
     ) {
-      Alert.alert(
-        'Missing Information',
-        'Please complete all required fields.'
-      );
+      showToast('Please complete all required fields.');
 
       return;
     }
 
-    /*
-     * Later this will call:
-     *
-     * POST /api/games/create
-     *
-     * This screen is intentionally limited to
-     * the Beta-supported admin operation.
-     */
+    if (
+      !Number.isInteger(min) ||
+      !Number.isInteger(max)
+    ) {
+      showToast('Minimum and maximum players must be valid numbers.');
 
-    Alert.alert(
-      'Game Created',
-      'The game has been created successfully.',
-      [
-        {
-          text: 'BACK',
-          onPress: () =>
-            navigation.navigate('GameCatalog'),
-        },
-      ]
-    );
+      return;
+    }
+
+    if (min < 2 || max < 2) {
+      showToast('Player limits must be at least 2.');
+
+      return;
+    }
+
+    if (min > max) {
+      showToast('Minimum players cannot exceed maximum players.');
+
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      await createGame({
+        name: trimmedName,
+        slug: trimmedSlug,
+        description: trimmedDescription,
+        minPlayers: min,
+        maxPlayers: max,
+        gameType: 'PARTY',
+        thumbnailUrl: null,
+      });
+
+      showToast('Game added to the catalog.', 'success');
+      navigation.replace('GameCatalog');
+
+      setName('');
+      setSlug('');
+      setDescription('');
+      setMinPlayers('4');
+      setMaxPlayers('15');
+
+    } catch (error) {
+      showToast(
+        getApiErrorMessage(error, 'Unable to create the game.')
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -98,6 +161,8 @@ export default function AdminCreateGameScreen({
             placeholder="example-game"
             value={slug}
             onChangeText={setSlug}
+            autoCapitalize="none"
+            autoCorrect={false}
           />
 
           <GlassInput
@@ -105,6 +170,7 @@ export default function AdminCreateGameScreen({
             placeholder="Describe the game..."
             value={description}
             onChangeText={setDescription}
+            multiline
           />
 
           <GlassInput
@@ -124,8 +190,13 @@ export default function AdminCreateGameScreen({
           />
 
           <GlassButton
-            title="CREATE GAME"
+            title={
+              loading
+                ? 'CREATING...'
+                : 'CREATE GAME'
+            }
             onPress={handleCreateGame}
+            disabled={loading}
           />
 
         </GlassCard>
@@ -181,3 +252,4 @@ const styles = StyleSheet.create({
   },
 
 });
+

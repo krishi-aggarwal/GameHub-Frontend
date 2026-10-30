@@ -5,7 +5,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 
@@ -18,21 +17,22 @@ import colors from '../../theme/colors';
 
 import { joinRoom } from '../../api/roomApi';
 import { getApiErrorMessage } from '../../api/apiUtils';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 
 export default function JoinRoomScreen({ navigation }) {
 
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const { setActiveRoomCode } = useAuth();
+  const { showToast } = useToast();
 
   const handleJoinRoom = async () => {
 
     const code = roomCode.trim().toUpperCase();
 
     if (!code) {
-      Alert.alert(
-        'Room Code Required',
-        'Enter the room code to join a game.'
-      );
+      showToast('Enter the room code to join a game.');
 
       return;
     }
@@ -49,6 +49,8 @@ export default function JoinRoomScreen({ navigation }) {
         );
       }
 
+      await setActiveRoomCode(room.roomCode);
+
       navigation.replace('Lobby', {
         roomCode: room.roomCode,
       });
@@ -60,12 +62,8 @@ export default function JoinRoomScreen({ navigation }) {
         error
       );
 
-      Alert.alert(
-        'Could Not Join Room',
-        getApiErrorMessage(
-          error,
-          'Unable to join this room.'
-        )
+      showToast(
+        getApiErrorMessage(error, 'Unable to join this room.')
       );
 
     } finally {

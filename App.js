@@ -1,5 +1,10 @@
 import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
+
+import {
+  ActivityIndicator,
+  View,
+} from 'react-native';
+
 import { useFonts } from 'expo-font';
 
 import {
@@ -11,8 +16,20 @@ import {
 } from '@expo-google-fonts/inter';
 
 import colors from './src/theme/colors';
+
 import AppNavigator from './src/navigation/AppNavigator';
-import { AuthProvider } from './src/context/AuthContext';
+
+import {
+  AuthProvider,
+} from './src/context/AuthContext';
+
+import {
+  GameProvider,
+} from './src/context/GameContext';
+
+import {
+  ToastProvider,
+} from './src/context/ToastContext';
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -33,14 +50,20 @@ export default function App() {
           alignItems: 'center',
         }}
       >
-        <ActivityIndicator color={colors.primary} />
+        <ActivityIndicator
+          color={colors.primary}
+        />
       </View>
     );
   }
 
   return (
-    <AuthProvider>
-      <AppNavigator />
-    </AuthProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <GameProvider>
+          <AppNavigator />
+        </GameProvider>
+      </AuthProvider>
+    </ToastProvider>
   );
 }

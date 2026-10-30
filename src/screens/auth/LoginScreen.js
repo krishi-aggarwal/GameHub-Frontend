@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 
 import {
@@ -8,7 +7,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 
@@ -23,47 +21,31 @@ import colors from '../../theme/colors';
 import { login } from '../../api/authApi';
 import { useAuth } from '../../context/AuthContext';
 import { getApiErrorMessage } from '../../api/apiUtils';
+import { useToast } from '../../context/ToastContext';
 
 export default function LoginScreen({ navigation }) {
-
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
   const [loading, setLoading] = useState(false);
 
   const { saveAuth } = useAuth();
+  const { showToast } = useToast();
 
   const handleLogin = async () => {
-
-    // Basic validation
     if (!username.trim() || !password) {
-      Alert.alert(
-        'Missing Information',
-        'Please enter your username and password.'
-      );
-
+      showToast('Please enter your username and password.');
       return;
     }
 
     try {
-
       setLoading(true);
 
-      // Call backend login API
       const data = await login(
         username.trim(),
         password
       );
 
-      /*
-       * Backend may return:
-       * {
-       *   token: "...",
-       *   user: {...}
-       * }
-       *
-       * We also support accessToken as a fallback.
-       */
       const token =
         data?.token ||
         data?.accessToken;
@@ -78,37 +60,22 @@ export default function LoginScreen({ navigation }) {
         );
       }
 
-      // Save JWT + user in AuthContext / AsyncStorage
       await saveAuth(token, user);
 
-      // Move into the GameHub platform
       navigation.replace('Home');
-
     } catch (error) {
+      console.error('Login failed:', error);
 
-      console.error(
-        'Login failed:',
-        error
+      showToast(
+        getApiErrorMessage(error, 'Invalid username or password.')
       );
-
-      Alert.alert(
-        'Login Failed',
-        getApiErrorMessage(
-          error,
-          'Invalid username or password.'
-        )
-      );
-
     } finally {
-
       setLoading(false);
-
     }
   };
 
   return (
     <Screen>
-
       <KeyboardAvoidingView
         style={styles.keyboard}
         behavior={
@@ -117,15 +84,13 @@ export default function LoginScreen({ navigation }) {
             : undefined
         }
       >
-
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-
           {/* GAMEHUB HEADER */}
           <View style={styles.header}>
-
             <Logo />
 
             <Text style={styles.welcome}>
@@ -135,12 +100,10 @@ export default function LoginScreen({ navigation }) {
             <Text style={styles.description}>
               Enter the hub and find your next game.
             </Text>
-
           </View>
 
           {/* LOGIN CARD */}
           <GlassCard style={styles.card}>
-
             <Text style={styles.title}>
               Sign in
             </Text>
@@ -155,6 +118,7 @@ export default function LoginScreen({ navigation }) {
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
+              autoCorrect={false}
               editable={!loading}
             />
 
@@ -165,6 +129,7 @@ export default function LoginScreen({ navigation }) {
               onChangeText={setPassword}
               secureTextEntry
               autoCapitalize="none"
+              autoCorrect={false}
               editable={!loading}
             />
 
@@ -188,7 +153,6 @@ export default function LoginScreen({ navigation }) {
 
             {/* REGISTER */}
             <View style={styles.registerRow}>
-
               <Text style={styles.registerText}>
                 Don't have an account?
               </Text>
@@ -206,65 +170,48 @@ export default function LoginScreen({ navigation }) {
               >
                 Register
               </Text>
-
             </View>
-
           </GlassCard>
-
         </ScrollView>
-
       </KeyboardAvoidingView>
-
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-
   keyboard: {
     flex: 1,
   },
 
   container: {
     flexGrow: 1,
-
     justifyContent: 'center',
 
     paddingHorizontal: 24,
     paddingVertical: 40,
 
     maxWidth: 520,
-
     width: '100%',
-
     alignSelf: 'center',
   },
 
   header: {
     alignItems: 'center',
-
     marginBottom: 32,
   },
 
   welcome: {
     color: colors.text,
-
     fontFamily: 'Inter-Bold',
-
     fontSize: 22,
-
     marginTop: 28,
   },
 
   description: {
     color: colors.textSecondary,
-
     fontFamily: 'Inter',
-
     fontSize: 14,
-
     marginTop: 8,
-
     textAlign: 'center',
   },
 
@@ -274,47 +221,34 @@ const styles = StyleSheet.create({
 
   title: {
     color: colors.text,
-
     fontFamily: 'Inter-Bold',
-
     fontSize: 24,
   },
 
   subtitle: {
     color: colors.textSecondary,
-
     fontFamily: 'Inter',
-
     fontSize: 13,
-
     marginTop: 6,
-
     marginBottom: 24,
   },
 
   registerRow: {
     flexDirection: 'row',
-
     justifyContent: 'center',
-
     marginTop: 22,
   },
 
   registerText: {
     color: colors.textMuted,
-
     fontFamily: 'Inter',
-
     fontSize: 13,
   },
 
   registerLink: {
     color: colors.primary,
-
     fontFamily: 'Inter-SemiBold',
-
     fontSize: 13,
-
     marginLeft: 5,
   },
 
@@ -325,6 +259,4 @@ const styles = StyleSheet.create({
   loader: {
     marginTop: 12,
   },
-
 });
-

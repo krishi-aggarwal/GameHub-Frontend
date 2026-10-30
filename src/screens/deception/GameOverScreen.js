@@ -1,4 +1,8 @@
-import React from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import {
   ScrollView,
@@ -15,40 +19,150 @@ import Avatar from '../../components/Avatar';
 import colors from '../../theme/colors';
 import spacing from '../../theme/spacing';
 
+import {
+  useGame,
+} from '../../context/GameContext';
+import { useAuth } from '../../context/AuthContext';
+
+import {
+  getGameResult,
+} from '../../api/deceptionApi';
+
 export default function GameOverScreen({
   navigation,
   route,
 }) {
 
   const {
-    result = 'INNOCENTS_WIN',
+    result: routeResult,
   } = route?.params || {};
 
-  const players = [
-    {
-      id: 1,
-      name: 'Player 01',
-      alive: false,
-    },
-    {
-      id: 2,
-      name: 'Player 02',
-      alive: true,
-    },
-    {
-      id: 3,
-      name: 'Player 03',
-      alive: true,
-    },
-    {
-      id: 4,
-      name: 'Player 04',
-      alive: true,
-    },
-  ];
+  const {
+    sessionId,
+    gameState,
+    players: contextPlayers,
+    exitGame,
+  } = useGame();
+  const { activeRoomCode } = useAuth();
+
+  const returnToLobby = () => {
+    exitGame();
+    if (activeRoomCode) {
+      navigation.replace('Lobby', { roomCode: activeRoomCode });
+    } else {
+      navigation.replace('GameCatalog');
+    }
+  };
+
+  const [gameResult, setGameResult] =
+    useState(routeResult ?? null);
+
+  /*
+   * Use players from GameContext.
+   */
+  const players = useMemo(() => {
+
+    if (!Array.isArray(contextPlayers)) {
+      return [];
+    }
+
+    return contextPlayers;
+
+  }, [contextPlayers]);
+
+  /*
+   * If result was not passed through navigation,
+   * get it from the backend.
+   */
+  useEffect(() => {
+
+    if (gameResult || !sessionId) {
+      return;
+    }
+
+    const fetchResult = async () => {
+
+      try {
+
+        const data =
+          await getGameResult(sessionId);
+
+        /*
+         * Support either:
+         * data.result
+         * data.gameResult
+         * data.winner
+         */
+        const resolvedResult =
+          data?.result ??
+          data?.gameResult ??
+          data?.winner ??
+          null;
+
+        if (resolvedResult) {
+          setGameResult(resolvedResult);
+        }
+
+      } catch (error) {
+
+        console.error(
+          'Failed to fetch game result:',
+          error
+        );
+
+      }
+    };
+
+    fetchResult();
+
+  }, [
+    gameResult,
+    sessionId,
+  ]);
+
+  /*
+   * Backend game state may already contain
+   * the final result.
+   */
+  const finalResult =
+    gameResult ??
+    gameState?.result ??
+    gameState?.gameResult ??
+    gameState?.winner ??
+    'INNOCENTS_WIN';
 
   const predatorsWon =
-    result === 'PREDATORS_WIN';
+    finalResult === 'PREDATORS_WIN';
+
+  /*
+   * Get player display name safely.
+   */
+  const getPlayerName = (player) => {
+
+    return (
+      player?.username ??
+      player?.displayName ??
+      player?.name ??
+      player?.user?.username ??
+      player?.user?.displayName ??
+      player?.user?.name ??
+      'Unknown Player'
+    );
+  };
+
+  /*
+   * Get a stable key.
+   */
+  const getPlayerId = (player, index) => {
+
+    return (
+      player?.userId ??
+      player?.id ??
+      player?.user?.userId ??
+      player?.user?.id ??
+      `player-${index}`
+    );
+  };
 
   return (
     <Screen>
@@ -97,40 +211,67 @@ export default function GameOverScreen({
             FINAL PLAYER STATE
           </Text>
 
-          {players.map((player) => (
-            <View
-              key={player.id}
-              style={styles.playerRow}
-            >
+          {players.length > 0 ? (
 
-              <Avatar
-                name={player.name}
-                size={42}
-              />
+            players.map((player, index) => {
 
-              <View style={styles.playerInfo}>
+              const playerName =
+                getPlayerName(player);
 
-                <Text style={styles.playerName}>
-                  {player.name}
-                </Text>
+              const playerId =
+                getPlayerId(player, index);
 
-                <Text
-                  style={[
-                    styles.status,
-                    player.alive
-                      ? styles.alive
-                      : styles.dead,
-                  ]}
+              const isAlive =
+                player?.alive !== false;
+              const hasLeft = player?.left === true;
+
+              return (
+                <View
+                  key={String(playerId)}
+                  style={styles.playerRow}
                 >
-                  {player.alive
-                    ? 'ALIVE'
-                    : 'ELIMINATED'}
-                </Text>
 
-              </View>
+                  <Avatar
+                    name={playerName}
+                    size={42}
+                  />
 
-            </View>
-          ))}
+                  <View style={styles.playerInfo}>
+
+                    <Text style={styles.playerName}>
+                      {playerName}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.status,
+                        hasLeft
+                          ? styles.left
+                          : isAlive
+                            ? styles.alive
+                            : styles.dead,
+                      ]}
+                    >
+                      {hasLeft
+                        ? 'LEFT GAME'
+                        : isAlive
+                          ? 'ALIVE'
+                          : 'ELIMINATED'}
+                    </Text>
+
+                  </View>
+
+                </View>
+              );
+            })
+
+          ) : (
+
+            <Text style={styles.noPlayers}>
+              No player data available.
+            </Text>
+
+          )}
 
         </GlassCard>
 
@@ -138,10 +279,8 @@ export default function GameOverScreen({
         <View style={styles.actions}>
 
           <GlassButton
-            title="BACK TO GAMEHUB"
-            onPress={() =>
-              navigation.replace('GameCatalog')
-            }
+            title="BACK TO LOBBY"
+            onPress={returnToLobby}
           />
 
           <View style={styles.secondaryAction}>
@@ -149,9 +288,7 @@ export default function GameOverScreen({
             <GlassButton
               title="PLAY AGAIN"
               variant="secondary"
-              onPress={() =>
-                navigation.replace('GameCatalog')
-              }
+              onPress={returnToLobby}
             />
 
           </View>
@@ -255,6 +392,16 @@ const styles = StyleSheet.create({
 
   dead: {
     color: colors.danger,
+  },
+
+  left: {
+    color: colors.textMuted,
+  },
+
+  noPlayers: {
+    color: colors.textMuted,
+    fontFamily: 'Inter',
+    fontSize: 13,
   },
 
   actions: {

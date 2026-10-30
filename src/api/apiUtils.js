@@ -2,27 +2,47 @@ export function getApiErrorMessage(
   error,
   fallback = 'Something went wrong.'
 ) {
+  const data = error?.response?.data;
 
-  /*
-   * Spring Boot ErrorResponse usually gives us
-   * a message field.
-   */
+  const validationMessages = Array.isArray(data?.errors)
+    ? data.errors
+        .map((item) => {
+          if (!item?.message) {
+            return null;
+          }
 
-  if (error?.response?.data?.message) {
-    return error.response.data.message;
+          return item.field
+            ? `${item.field}: ${item.message}`
+            : item.message;
+        })
+        .filter(Boolean)
+    : [];
+
+  if (validationMessages.length > 0) {
+    return validationMessages.join('\n');
   }
 
-  /*
-   * Some responses may directly return a string.
-   */
+  const title = data?.title;
+  const detail = data?.msg || data?.detail;
 
-  if (typeof error?.response?.data === 'string') {
-    return error.response.data;
+  if (
+    detail &&
+    (!title || ['Unauthorized', 'Forbidden', 'Validation failed'].includes(title))
+  ) {
+    return detail;
   }
 
-  /*
-   * Axios/network failure.
-   */
+  if (title) {
+    return title;
+  }
+
+  if (data?.message) {
+    return data.message;
+  }
+
+  if (typeof data === 'string') {
+    return data;
+  }
 
   if (error?.message) {
     return error.message;
