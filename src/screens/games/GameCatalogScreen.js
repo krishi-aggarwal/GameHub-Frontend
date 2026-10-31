@@ -1,9 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useState,
-} from 'react';
-
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   ActivityIndicator,
   View,
@@ -11,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
+  TextInput,
 } from 'react-native';
 
 import Screen from '../../components/Screen';
@@ -20,1062 +16,494 @@ import Avatar from '../../components/Avatar';
 
 import colors from '../../theme/colors';
 import spacing from '../../theme/spacing';
-
 import { useAuth } from '../../context/AuthContext';
-
-import {
-  getGames,
-} from '../../api/gameApi';
-
-import {
-  getApiErrorMessage,
-} from '../../api/apiUtils';
+import { getGames } from '../../api/gameApi';
+import { getApiErrorMessage } from '../../api/apiUtils';
 import { useToast } from '../../context/ToastContext';
+import { playSfx } from '../../utils/soundEffects';
 
-export default function GameCatalogScreen({
-  navigation,
-}) {
+const CATEGORIES = [
+  { id: 'ALL', label: '✦ All Games', icon: '🎮' },
+  { id: 'DEDUCTION', label: '🕵️ Social Deduction', icon: '🕵️' },
+  { id: 'PARTY', label: '🌊 Chill & Party', icon: '🎉' },
+  { id: 'LOCAL', label: '📱 Pass & Play', icon: '📱' },
+];
 
+export default function GameCatalogScreen({ navigation }) {
   const { user } = useAuth();
   const { showToast } = useToast();
 
-  const [games, setGames] =
-    useState([]);
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeCategory, setActiveCategory] = useState('ALL');
+  const [search, setSearch] = useState('');
 
-  const [loading, setLoading] =
-    useState(true);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const loadGames = useCallback(
-    async (isRefresh = false) => {
-
-      try {
-
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
-        }
-
-        const data =
-          await getGames();
-
-        const gameList =
-          Array.isArray(data)
-            ? data
-            : data?.data || [];
-
-        setGames(gameList);
-
-      } catch (error) {
-
-        console.error(
-          'Failed to load games:',
-          error
-        );
-
-        showToast(
-          getApiErrorMessage(error, 'Could not load the GameHub catalog.')
-        );
-
-      } finally {
-
-        setLoading(false);
-        setRefreshing(false);
-
-      }
-    },
-    []
-  );
+  const loadGames = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getGames();
+      const gameList = Array.isArray(data) ? data : data?.data || [];
+      setGames(gameList);
+    } catch (error) {
+      console.error('Failed to load games:', error);
+      showToast(getApiErrorMessage(error, 'Could not load the GameHub catalog.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     loadGames();
   }, [loadGames]);
 
-  const activeGames =
-    games.filter(
-      (game) =>
-        game.status === 'ACTIVE'
-    );
+  const filteredGames = useMemo(() => {
+    return games.filter((game) => {
+      const q = search.trim().toLowerCase();
+      const name = (game.name || '').toLowerCase();
+      const desc = (game.description || '').toLowerCase();
+      const type = (game.type || game.gameType || '').toUpperCase();
 
-  const comingSoonGames =
-    games.filter(
-      (game) =>
-        game.status === 'COMING_SOON'
-    );
+      const matchesQuery = !q || name.includes(q) || desc.includes(q);
+      if (!matchesQuery) return false;
 
-  const disabledGames =
-    games.filter(
-      (game) =>
-        game.status === 'DISABLED'
-    );
-
-  const handleCreateRoom = (
-    game
-  ) => {
-
-    navigation.navigate(
-      'CreateRoom',
-      {
-        gameId: game.gameId,
-        gameName: game.name,
+      if (activeCategory === 'DEDUCTION') {
+        return type.includes('DECEPTION') || type.includes('MAFIA') || type.includes('DEDUCTION');
       }
-    );
+      if (activeCategory === 'PARTY') {
+        return type.includes('FISHPOND') || type.includes('PARTY') || type.includes('CASUAL');
+      }
+      return true;
+    });
+  }, [games, search, activeCategory]);
+
+  const handleCreateRoom = (game) => {
+    playSfx('start');
+    navigation.navigate('CreateRoom', {
+      gameId: game.gameId || game._id,
+      gameName: game.name,
+    });
   };
 
-  const handleJoinRoom = () => {
-    navigation.navigate('JoinRoom');
-  };
-
-  const renderGameCard = (
-    game,
-    featured = false
-  ) => {
-
-    const isActive =
-      game.status === 'ACTIVE';
-
-    const isDisabled =
-      game.status === 'DISABLED';
-
-    return (
-      <GlassCard
-        key={game.gameId}
-        style={
-          featured
-            ? styles.featuredCard
-            : styles.gameCard
-        }
-      >
-
-        {/* GAME HEADER */}
-
-        <View style={styles.gameHeader}>
-
-          <View style={styles.gameHeaderLeft}>
-
-            <View
-              style={[
-                styles.statusDot,
-                isActive
-                  ? styles.activeDot
-                  : styles.inactiveDot,
-              ]}
-            />
-
-            <Text
-              style={[
-                styles.statusText,
-                isActive
-                  ? styles.activeText
-                  : styles.inactiveText,
-              ]}
-            >
-              {isActive
-                ? 'AVAILABLE'
-                : game.status === 'COMING_SOON'
-                  ? 'COMING SOON'
-                  : 'UNAVAILABLE'}
-            </Text>
-
-          </View>
-
-          <Text style={styles.gameType}>
-            {formatGameType(game.gameType || game.type)}
-          </Text>
-
-        </View>
-
-        {/* TITLE */}
-
-        <Text
-          style={
-            featured
-              ? styles.gameTitle
-              : styles.gameCardTitle
-          }
-        >
-          {game.name}
-        </Text>
-
-        <Text
-          numberOfLines={featured ? 3 : 2}
-          style={
-            featured
-              ? styles.gameDescription
-              : styles.gameCardDescription
-          }
-        >
-          {game.description}
-        </Text>
-
-        {/* GAME STATS */}
-
-        <View style={styles.statsContainer}>
-
-          <View style={styles.stat}>
-
-            <Text style={styles.statValue}>
-              {game.minPlayers}–{game.maxPlayers}
-            </Text>
-
-            <Text style={styles.statLabel}>
-              PLAYERS
-            </Text>
-
-          </View>
-
-          <View style={styles.statDivider} />
-
-          <View style={styles.stat}>
-
-            <Text style={styles.statValue}>
-              {formatGameType(game.gameType || game.type)}
-            </Text>
-
-            <Text style={styles.statLabel}>
-              CATEGORY
-            </Text>
-
-          </View>
-
-          <View style={styles.statDivider} />
-
-          <View style={styles.stat}>
-
-            <Text style={styles.statValue}>
-              LIVE
-            </Text>
-
-            <Text style={styles.statLabel}>
-              MULTIPLAYER
-            </Text>
-
-          </View>
-
-        </View>
-
-        {/* ACTION */}
-
-        {isActive ? (
-          <View style={styles.gameActions}>
-            <GlassButton
-              title={
-                featured
-                  ? 'CREATE A ROOM'
-                  : 'PLAY ONLINE'
-              }
-              onPress={() =>
-                handleCreateRoom(game)
-              }
-            />
-            <GlassButton
-              title="PASS & PLAY"
-              variant="secondary"
-              onPress={() => navigation.navigate('PassAndPlay', {
-                gameSlug: game.slug,
-              })}
-            />
-          </View>
-
-        ) : (
-
-          <View style={styles.unavailableBadge}>
-
-            <Text style={styles.unavailableText}>
-              {isDisabled
-                ? 'CURRENTLY UNAVAILABLE'
-                : 'COMING SOON'}
-            </Text>
-
-          </View>
-
-        )}
-
-      </GlassCard>
-    );
+  const handlePassAndPlay = (slug = 'deception-around-us') => {
+    playSfx('click');
+    navigation.navigate('PassAndPlay', { gameSlug: slug });
   };
 
   return (
     <Screen>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        {/* TOP BAR */}
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={() => { playSfx('click'); navigation.goBack(); }}
+            style={styles.backBtn}
+          >
+            <Text style={styles.backArrow}>‹</Text>
+            <Text style={styles.backLabel}>HOME</Text>
+          </Pressable>
 
-      <ScrollView
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-      >
-
-        {/* HEADER */}
-
-        <View style={styles.header}>
-
-          <View style={styles.headerTop}>
-
+          <View style={styles.topRight}>
             <Pressable
-              style={styles.backButton}
-              onPress={() =>
-                navigation.goBack()
-              }
+              onPress={() => navigation.navigate('JoinRoom')}
+              style={styles.joinCodeBtn}
             >
-
-              <Text style={styles.backArrow}>
-                ‹
-              </Text>
-
-              <Text style={styles.backText}>
-                BACK
-              </Text>
-
+              <Text style={styles.joinCodeText}>🎟️ ENTER CODE</Text>
             </Pressable>
 
-            <Pressable
-              style={styles.profileButton}
-              onPress={() =>
-                navigation.navigate('Home')
-              }
-            >
-
-              <Avatar
-                uri={user?.avatarUrl}
-                name={
-                  user?.displayName ||
-                  user?.username ||
-                  'U'
-                }
-                size={46}
-              />
-
-            </Pressable>
-
+            <Avatar
+              uri={user?.avatarUrl}
+              name={user?.displayName || user?.username || 'You'}
+              size={36}
+            />
           </View>
-
-          <View style={styles.headerContent}>
-
-            <Text style={styles.eyebrow}>
-              GAMEHUB
-            </Text>
-
-            <Text style={styles.title}>
-              Game Library
-            </Text>
-
-            <Text style={styles.subtitle}>
-              Discover games, create a room,
-              and play together.
-            </Text>
-
-          </View>
-
         </View>
 
-        {/* LOADING */}
-
-        {loading ? (
-
-          <View style={styles.loadingContainer}>
-
-            <ActivityIndicator
-              size="large"
-              color={colors.primary}
-            />
-
-            <Text style={styles.loadingText}>
-              Loading GameHub...
-            </Text>
-
+        {/* HERO TITLE */}
+        <View style={styles.header}>
+          <View style={styles.kickerBadge}>
+            <Text style={styles.kickerText}>ARCADE REPERTOIRE</Text>
           </View>
+          <Text style={styles.title}>Game Catalog 🕹️</Text>
+          <Text style={styles.subtitle}>
+            Explore our roster of multiplayer party, bluffing, and social deduction games.
+          </Text>
+        </View>
 
-        ) : (
+        {/* SEARCH BAR */}
+        <View style={styles.searchBar}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by game name, genre..."
+            placeholderTextColor={colors.textMuted}
+            style={styles.searchInput}
+          />
+          {search.length > 0 && (
+            <Pressable onPress={() => setSearch('')} hitSlop={8}>
+              <Text style={styles.clearSearch}>✕</Text>
+            </Pressable>
+          )}
+        </View>
 
-          <>
-
-            {/* QUICK ACTIONS */}
-
-            <View style={styles.quickActions}>
-
+        {/* CATEGORY TABS */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
+          {CATEGORIES.map((cat) => {
+            const active = activeCategory === cat.id;
+            return (
               <Pressable
-                style={styles.quickAction}
-                onPress={handleJoinRoom}
+                key={cat.id}
+                onPress={() => { playSfx('click'); setActiveCategory(cat.id); }}
+                style={[styles.tabChip, active && styles.activeTabChip]}
               >
-
-                <Text style={styles.quickActionLabel}>
-                  JOIN
+                <Text style={[styles.tabChipText, active && styles.activeTabChipText]}>
+                  {cat.label}
                 </Text>
-
-                <Text style={styles.quickActionTitle}>
-                  Enter a room
-                </Text>
-
-                <Text style={styles.quickActionArrow}>
-                  →
-                </Text>
-
               </Pressable>
+            );
+          })}
+        </ScrollView>
 
-              <Pressable
-                style={styles.quickAction}
-                onPress={() =>
-                  navigation.navigate('Tutorial')
-                }
-              >
+        {/* GAMES LIST */}
+        {loading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Fetching available game arenas...</Text>
+          </View>
+        ) : filteredGames.length > 0 ? (
+          <View style={styles.cardsGrid}>
+            {filteredGames.map((game, index) => {
+              const isActive = game.status === 'ACTIVE';
+              const isDeception = (game.name || '').toLowerCase().includes('deception');
 
-                <Text style={styles.quickActionLabel}>
-                  GUIDE
-                </Text>
-
-                <Text style={styles.quickActionTitle}>
-                  How GameHub works
-                </Text>
-
-                <Text style={styles.quickActionArrow}>
-                  →
-                </Text>
-
-              </Pressable>
-
-            </View>
-
-            {/* ACTIVE GAMES */}
-
-            {activeGames.length > 0 && (
-
-              <View style={styles.gamesSection}>
-
-                <View style={styles.sectionHeader}>
-
-                  <View>
-
-                    <Text style={styles.sectionEyebrow}>
-                      PLAY NOW
-                    </Text>
-
-                    <Text style={styles.sectionTitle}>
-                      Available games
-                    </Text>
-
-                  </View>
-
-                  <Text style={styles.gameCount}>
-                    {activeGames.length}{' '}
-                    {activeGames.length === 1
-                      ? 'GAME'
-                      : 'GAMES'}
-                  </Text>
-
-                </View>
-
-                {activeGames.map(
-                  (game, index) =>
-                    renderGameCard(
-                      game,
-                      index === 0
-                    )
-                )}
-
-              </View>
-            )}
-
-            {/* COMING SOON */}
-
-            {comingSoonGames.length > 0 && (
-
-              <View style={styles.gamesSection}>
-
-                <View style={styles.sectionHeader}>
-
-                  <View>
-
-                    <Text style={styles.sectionEyebrow}>
-                      ON THE WAY
-                    </Text>
-
-                    <Text style={styles.sectionTitle}>
-                      More games
-                    </Text>
-
-                  </View>
-
-                  <Text style={styles.gameCount}>
-                    {comingSoonGames.length}{' '}
-                    COMING
-                  </Text>
-
-                </View>
-
-                {comingSoonGames.map(
-                  (game) => (
-
-                    <GlassCard
-                      key={game.gameId}
-                      style={styles.lockedCard}
-                    >
-
-                      <View style={styles.lockIcon}>
-
-                        <Text style={styles.lockText}>
-                          +
-                        </Text>
-
-                      </View>
-
-                      <View style={styles.lockedContent}>
-
-                        <Text style={styles.lockedTitle}>
-                          {game.name}
-                        </Text>
-
-                        <Text
-                          numberOfLines={2}
-                          style={styles.lockedDescription}
-                        >
-                          {game.description}
-                        </Text>
-
-                      </View>
-
-                      <Text style={styles.comingSoonLabel}>
-                        SOON
+              return (
+                <GlassCard
+                  key={game.gameId || game._id || index}
+                  glow={isDeception ? 'purple' : 'cyan'}
+                  style={styles.card}
+                >
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardStatusBadge}>
+                      <View style={[styles.statusDot, isActive ? styles.dotActive : styles.dotInactive]} />
+                      <Text style={[styles.statusText, isActive ? styles.textActive : styles.textInactive]}>
+                        {isActive ? 'AVAILABLE NOW' : 'COMING SOON'}
                       </Text>
-
-                    </GlassCard>
-
-                  )
-                )}
-
-              </View>
-            )}
-
-            {/* DISABLED */}
-
-            {disabledGames.length > 0 && (
-
-              <View style={styles.gamesSection}>
-
-                <View style={styles.sectionHeader}>
-
-                  <View>
-
-                    <Text style={styles.sectionEyebrow}>
-                      GAME STATUS
+                    </View>
+                    <Text style={styles.gameCategory}>
+                      {String(game.type || 'PARTY').replace(/_/g, ' ')}
                     </Text>
-
-                    <Text style={styles.sectionTitle}>
-                      Unavailable
-                    </Text>
-
                   </View>
 
-                </View>
+                  <Text style={styles.gameTitle}>{game.name}</Text>
+                  <Text style={styles.gameDesc} numberOfLines={3}>
+                    {game.description || 'Entertaining multiplayer game mode.'}
+                  </Text>
 
-                {disabledGames.map(
-                  (game) => (
+                  {/* Gamer Stats Meta */}
+                  <View style={styles.metaRow}>
+                    <View style={styles.metaPill}>
+                      <Text style={styles.metaPillText}>
+                        👥 {game.minPlayers || 2}–{game.maxPlayers || 15} PLAYERS
+                      </Text>
+                    </View>
+                    <View style={styles.metaPill}>
+                      <Text style={styles.metaPillText}>
+                        ⏱️ ~15 MIN
+                      </Text>
+                    </View>
+                    <View style={styles.metaPill}>
+                      <Text style={styles.metaPillText}>
+                        🎯 {isDeception ? 'BLUFFING' : 'CHILL'}
+                      </Text>
+                    </View>
+                  </View>
 
-                    <GlassCard
-                      key={game.gameId}
-                      style={styles.lockedCard}
-                    >
-
-                      <View style={styles.lockIcon}>
-
-                        <Text style={styles.lockText}>
-                          —
-                        </Text>
-
-                      </View>
-
-                      <View style={styles.lockedContent}>
-
-                        <Text style={styles.lockedTitle}>
-                          {game.name}
-                        </Text>
-
-                        <Text style={styles.lockedDescription}>
-                          This game is currently unavailable.
-                        </Text>
-
-                      </View>
-
-                    </GlassCard>
-
-                  )
-                )}
-
-              </View>
-            )}
-
-            {/* EMPTY */}
-
-            {games.length === 0 && (
-
-              <GlassCard style={styles.emptyCard}>
-
-                <Text style={styles.emptyEyebrow}>
-                  GAME LIBRARY
-                </Text>
-
-                <Text style={styles.emptyTitle}>
-                  Your library is empty
-                </Text>
-
-                <Text style={styles.emptyText}>
-                  Games added to GameHub will appear
-                  here.
-                </Text>
-
-                <GlassButton
-                  title={
-                    refreshing
-                      ? 'REFRESHING...'
-                      : 'REFRESH LIBRARY'
-                  }
-                  onPress={() =>
-                    loadGames(true)
-                  }
-                  disabled={refreshing}
-                />
-
-              </GlassCard>
-
-            )}
-
-          </>
-
+                  {/* Actions */}
+                  <View style={styles.cardButtonsRow}>
+                    <GlassButton
+                      title="CREATE ROOM 🚀"
+                      variant="primary"
+                      disabled={!isActive}
+                      onPress={() => handleCreateRoom(game)}
+                      style={{ flex: 1 }}
+                    />
+                    {isDeception && (
+                      <GlassButton
+                        title="PASS & PLAY 📱"
+                        variant="secondary"
+                        onPress={() => handlePassAndPlay('deception-around-us')}
+                        style={{ flex: 1 }}
+                      />
+                    )}
+                  </View>
+                </GlassCard>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyEmoji}>👾</Text>
+            <Text style={styles.emptyTitle}>No matching games found</Text>
+            <Text style={styles.emptySubtitle}>Try selecting "All Games" or clear your search.</Text>
+            <GlassButton
+              title="SHOW ALL GAMES"
+              variant="secondary"
+              size="small"
+              onPress={() => { setSearch(''); setActiveCategory('ALL'); }}
+              style={{ marginTop: 12 }}
+            />
+          </View>
         )}
-
       </ScrollView>
-
     </Screen>
   );
 }
 
-function formatGameType(type) {
-
-  if (!type) {
-    return 'Game';
-  }
-
-  return type
-    .toLowerCase()
-    .replace(
-      /^\w/,
-      (character) =>
-        character.toUpperCase()
-    );
-}
-
 const styles = StyleSheet.create({
-
   container: {
-    padding: spacing.xl,
-    paddingBottom: 50,
-    maxWidth: 900,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 48,
+    maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
   },
-
-  /* HEADER */
-
-  header: {
-    marginBottom: spacing.xl,
-  },
-
-  headerTop: {
+  topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: 20,
   },
-
-  headerContent: {
-    flex: 1,
-  },
-
-  backButton: {
+  backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingRight: 12,
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
   },
-
   backArrow: {
-    color: colors.text,
-    fontFamily: 'Inter',
-    fontSize: 28,
-    lineHeight: 28,
-    marginRight: 6,
+    color: colors.neonCyan,
+    fontSize: 22,
+    fontWeight: '800',
   },
-
-  backText: {
+  backLabel: {
     color: colors.textSecondary,
     fontFamily: 'Inter-Bold',
-    fontSize: 9,
-    letterSpacing: 1.2,
+    fontSize: 12,
   },
-
-  eyebrow: {
-    color: colors.primary,
+  topRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  joinCodeBtn: {
+    backgroundColor: 'rgba(0, 240, 255, 0.12)',
+    borderWidth: 1,
+    borderColor: colors.neonCyan,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  joinCodeText: {
+    color: colors.neonCyan,
     fontFamily: 'Inter-Bold',
     fontSize: 10,
-    letterSpacing: 2,
-    marginBottom: 6,
   },
-
+  header: {
+    marginBottom: 20,
+  },
+  kickerBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 8,
+  },
+  kickerText: {
+    color: colors.primary,
+    fontFamily: 'Inter-Bold',
+    fontSize: 9,
+    letterSpacing: 1,
+  },
   title: {
     color: colors.text,
     fontFamily: 'Inter-ExtraBold',
     fontSize: 28,
+    letterSpacing: -0.5,
   },
-
   subtitle: {
     color: colors.textSecondary,
     fontFamily: 'Inter',
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: 18,
     marginTop: 6,
   },
-
-  profileButton: {
-    borderRadius: 23,
-  },
-
-  /* LOADING */
-
-  loadingContainer: {
-    minHeight: 280,
-    justifyContent: 'center',
+  searchBar: {
+    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1.2,
+    borderColor: colors.border,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 44,
+    marginBottom: 12,
   },
-
+  searchIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: colors.text,
+    fontFamily: 'Inter',
+    fontSize: 13,
+  },
+  clearSearch: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    paddingHorizontal: 4,
+  },
+  tabsRow: {
+    paddingBottom: 14,
+    gap: 8,
+  },
+  tabChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  activeTabChip: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  tabChipText: {
+    color: colors.textMuted,
+    fontFamily: 'Inter-Bold',
+    fontSize: 11,
+  },
+  activeTabChipText: {
+    color: colors.white,
+  },
+  loadingBox: {
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
   loadingText: {
     color: colors.textMuted,
     fontFamily: 'Inter',
     fontSize: 12,
-    marginTop: spacing.md,
+    marginTop: 10,
   },
-
-  /* QUICK ACTIONS */
-
-  quickActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.xxl,
+  cardsGrid: {
+    gap: 16,
   },
-
-  quickAction: {
-    flex: 1,
-    minHeight: 88,
-
-    padding: spacing.md,
-
-    borderRadius: 16,
-
-    backgroundColor: colors.surface,
-
-    borderWidth: 1,
-    borderColor: colors.border,
-
-    justifyContent: 'space-between',
+  card: {
+    padding: 20,
   },
-
-  quickActionLabel: {
-    color: colors.primary,
-    fontFamily: 'Inter-Bold',
-    fontSize: 9,
-    letterSpacing: 1.2,
-  },
-
-  quickActionTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 13,
-    marginTop: 7,
-    paddingRight: 18,
-  },
-
-  quickActionArrow: {
-    position: 'absolute',
-    right: 14,
-    bottom: 12,
-
-    color: colors.primary,
-    fontFamily: 'Inter-Bold',
-    fontSize: 18,
-  },
-
-  /* SECTIONS */
-
-  gamesSection: {
-    marginBottom: spacing.xxl,
-  },
-
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginBottom: spacing.md,
-  },
-
-  sectionEyebrow: {
-    color: colors.primary,
-    fontFamily: 'Inter-Bold',
-    fontSize: 9,
-    letterSpacing: 1.4,
-    marginBottom: 4,
-  },
-
-  sectionTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 19,
-  },
-
-  gameCount: {
-    color: colors.textMuted,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 9,
-    letterSpacing: 1,
-  },
-
-  /* GAME CARDS */
-
-  featuredCard: {
-    marginBottom: spacing.lg,
-    padding: spacing.xl,
-  },
-
-  gameCard: {
-    marginBottom: spacing.md,
-    padding: spacing.lg,
-  },
-
-  gameHeader: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    marginBottom: 10,
   },
-
-  gameActions: {
-    gap: spacing.sm,
-  },
-
-  gameHeaderLeft: {
+  cardStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
   },
-
   statusDot: {
     width: 7,
     height: 7,
     borderRadius: 4,
-    marginRight: 7,
   },
-
-  activeDot: {
-    backgroundColor: colors.success,
+  dotActive: {
+    backgroundColor: colors.neonLime,
   },
-
-  inactiveDot: {
+  dotInactive: {
     backgroundColor: colors.textMuted,
   },
-
   statusText: {
     fontFamily: 'Inter-Bold',
     fontSize: 9,
-    letterSpacing: 1,
-  },
-
-  activeText: {
-    color: colors.success,
-  },
-
-  inactiveText: {
-    color: colors.textMuted,
-  },
-
-  gameType: {
-    color: colors.textMuted,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 9,
     letterSpacing: 0.8,
   },
-
+  textActive: {
+    color: colors.neonLime,
+  },
+  textInactive: {
+    color: colors.textMuted,
+  },
+  gameCategory: {
+    color: colors.textMuted,
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+    letterSpacing: 0.5,
+  },
   gameTitle: {
     color: colors.text,
     fontFamily: 'Inter-ExtraBold',
-    fontSize: 26,
-    marginBottom: spacing.sm,
+    fontSize: 22,
+    marginBottom: 6,
   },
-
-  gameCardTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 18,
-    marginBottom: spacing.xs,
-  },
-
-  gameDescription: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: spacing.lg,
-  },
-
-  gameCardDescription: {
+  gameDesc: {
     color: colors.textSecondary,
     fontFamily: 'Inter',
     fontSize: 12,
     lineHeight: 18,
-    marginBottom: spacing.lg,
+    marginBottom: 14,
   },
-
-  /* GAME STATS */
-
-  statsContainer: {
+  metaRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-    paddingVertical: spacing.md,
-
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 18,
   },
-
-  stat: {
-    flex: 1,
-  },
-
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: colors.border,
-  },
-
-  statValue: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 12,
-    marginBottom: 3,
-  },
-
-  statLabel: {
-    color: colors.textMuted,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 8,
-    letterSpacing: 0.8,
-  },
-
-  /* UNAVAILABLE */
-
-  unavailableBadge: {
-    alignSelf: 'flex-start',
-
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-
-    borderRadius: 10,
-
-    backgroundColor: colors.surfaceStrong,
-
+  metaPill: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
   },
-
-  unavailableText: {
-    color: colors.textMuted,
+  metaPillText: {
+    color: colors.neonCyan,
     fontFamily: 'Inter-Bold',
     fontSize: 9,
-    letterSpacing: 0.8,
   },
-
-  /* LOCKED GAMES */
-
-  lockedCard: {
+  cardButtonsRow: {
     flexDirection: 'row',
+    gap: 10,
+  },
+  emptyBox: {
     alignItems: 'center',
-
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-
-    opacity: 0.78,
+    padding: 36,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-
-  lockIcon: {
-    width: 44,
-    height: 44,
-
-    borderRadius: 13,
-
-    backgroundColor: colors.surfaceStrong,
-
-    justifyContent: 'center',
-    alignItems: 'center',
-
-    marginRight: spacing.md,
+  emptyEmoji: {
+    fontSize: 36,
+    marginBottom: 8,
   },
-
-  lockText: {
-    color: colors.primary,
-    fontFamily: 'Inter-Bold',
-    fontSize: 20,
-  },
-
-  lockedContent: {
-    flex: 1,
-    paddingRight: spacing.sm,
-  },
-
-  lockedTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 14,
-    marginBottom: 3,
-  },
-
-  lockedDescription: {
-    color: colors.textMuted,
-    fontFamily: 'Inter',
-    fontSize: 11,
-    lineHeight: 17,
-  },
-
-  comingSoonLabel: {
-    color: colors.textMuted,
-    fontFamily: 'Inter-Bold',
-    fontSize: 8,
-    letterSpacing: 0.8,
-  },
-
-  /* EMPTY */
-
-  emptyCard: {
-    marginTop: spacing.md,
-  },
-
-  emptyEyebrow: {
-    color: colors.primary,
-    fontFamily: 'Inter-Bold',
-    fontSize: 9,
-    letterSpacing: 1.3,
-    marginBottom: 6,
-  },
-
   emptyTitle: {
     color: colors.text,
     fontFamily: 'Inter-Bold',
-    fontSize: 18,
-    marginBottom: 6,
+    fontSize: 16,
+    marginBottom: 4,
   },
-
-  emptyText: {
+  emptySubtitle: {
     color: colors.textMuted,
     fontFamily: 'Inter',
     fontSize: 12,
-    lineHeight: 18,
-    marginBottom: spacing.lg,
   },
-
 });

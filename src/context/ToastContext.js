@@ -21,6 +21,9 @@ const ToastContext = createContext(null);
 export function ToastProvider({ children }) {
   const [toast, setToast] = useState(null);
   const timerRef = useRef(null);
+  const eventTimerRef = useRef(null);
+  const eventQueueRef = useRef([]);
+  const eventActiveRef = useRef(false);
 
   const dismissToast = useCallback(() => {
     if (timerRef.current) {
@@ -28,6 +31,13 @@ export function ToastProvider({ children }) {
       timerRef.current = null;
     }
 
+    if (eventTimerRef.current) {
+      clearTimeout(eventTimerRef.current);
+      eventTimerRef.current = null;
+    }
+
+    eventQueueRef.current = [];
+    eventActiveRef.current = false;
     setToast(null);
   }, []);
 
@@ -38,26 +48,74 @@ export function ToastProvider({ children }) {
 
     if (timerRef.current) {
       clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
 
+    if (eventTimerRef.current) {
+      clearTimeout(eventTimerRef.current);
+      eventTimerRef.current = null;
+    }
+
+    eventQueueRef.current = [];
+    eventActiveRef.current = false;
     setToast({ message: String(message), type });
     timerRef.current = setTimeout(() => setToast(null), 4200);
+  }, []);
+
+  const showGameEventToast = useCallback((message, type = 'info') => {
+    if (!message) {
+      return;
+    }
+
+    eventQueueRef.current.push({
+      message: String(message),
+      type,
+    });
+
+    if (eventActiveRef.current) {
+      return;
+    }
+
+    const showNextEvent = () => {
+      const next = eventQueueRef.current.shift();
+
+      if (!next) {
+        eventActiveRef.current = false;
+        setToast(null);
+        return;
+      }
+
+      eventActiveRef.current = true;
+      setToast(next);
+      eventTimerRef.current = setTimeout(() => {
+        eventTimerRef.current = null;
+        showNextEvent();
+      }, 2600);
+    };
+
+    showNextEvent();
   }, []);
 
   useEffect(() => () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
+
+    if (eventTimerRef.current) {
+      clearTimeout(eventTimerRef.current);
+    }
   }, []);
 
   const accent = toast?.type === 'success'
     ? colors.success
     : toast?.type === 'info'
-      ? colors.primary
-      : colors.danger;
+      ? colors.info
+      : toast?.type === 'warning'
+        ? colors.warning
+        : colors.danger;
 
   return (
-    <ToastContext.Provider value={{ showToast, dismissToast }}>
+    <ToastContext.Provider value={{ showToast, showGameEventToast, dismissToast }}>
       <View style={styles.root}>
         {children}
         {toast && (
@@ -109,11 +167,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#171B25',
+    backgroundColor: '#172239',
     borderWidth: 1,
     borderColor: colors.borderStrong,
     borderLeftWidth: 4,
-    borderRadius: 8,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
   },
   message: {
     flex: 1,

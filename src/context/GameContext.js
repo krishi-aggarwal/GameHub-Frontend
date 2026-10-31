@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -18,11 +19,13 @@ import {
 import {
   useAuth,
 } from './AuthContext';
+import { useToast } from './ToastContext';
 
 const GameContext = createContext(null);
 
 export function GameProvider({ children }) {
   const { token, user } = useAuth();
+  const { showGameEventToast } = useToast();
 
   /*
    * Current Deception game session.
@@ -47,6 +50,95 @@ export function GameProvider({ children }) {
 
   const [error, setError] =
     useState(null);
+
+  const gameStateRef = useRef(gameState);
+  gameStateRef.current = gameState;
+
+  const currentUserId =
+    user?.userId ??
+    user?.id ??
+    user?.userID ??
+    user?.user?.userId ??
+    user?.user?.id ??
+    null;
+
+  const getEventPlayer = useCallback((playerId) => {
+    if (playerId === null || playerId === undefined) {
+      return null;
+    }
+
+    return gameStateRef.current?.players?.find(
+      (player) => String(player.userId) === String(playerId)
+    ) ?? null;
+  }, []);
+
+  const notifyGameEvent = useCallback((event) => {
+    const data = event?.data;
+    const playerId = data?.userId ?? data?.targetUserId ?? data;
+    const player = getEventPlayer(playerId);
+    const playerName = player?.displayName || 'A player';
+    const isCurrentPlayer =
+      currentUserId !== null &&
+      currentUserId !== undefined &&
+      playerId !== null &&
+      playerId !== undefined &&
+      String(currentUserId) === String(playerId);
+
+    switch (event?.type) {
+      case 'GAME_STARTED':
+        showGameEventToast('The match is live. Your secret role is ready.', 'success');
+        break;
+      case 'NIGHT_STARTED':
+        showGameEventToast(`Night ${data || ''} has begun. Choose your move carefully.`);
+        break;
+      case 'DAY_STARTED':
+        showGameEventToast(
+          player
+            ? `Morning meeting: ${playerName} was killed last night.`
+            : 'Morning meeting is live. Discuss what happened overnight.'
+        );
+        break;
+      case 'PLAYER_ELIMINATED':
+        showGameEventToast(
+          isCurrentPlayer
+            ? 'You have been eliminated. You can stay and spectate the match.'
+            : `${playerName} has been eliminated.`,
+          isCurrentPlayer ? 'warning' : 'error'
+        );
+        break;
+      case 'PLAYER_LEFT':
+        showGameEventToast(
+          isCurrentPlayer
+            ? 'You left the match.'
+            : `${playerName} left the match.`,
+          'warning'
+        );
+        break;
+      case 'VOTING_STARTED':
+        showGameEventToast('Voting is open. Lock in your best guess.');
+        break;
+      case 'VOTING_RESOLVED':
+        showGameEventToast(
+          player
+            ? `${playerName} was voted out.`
+            : 'The vote is tied. Nobody was eliminated.',
+          player ? 'warning' : 'info'
+        );
+        break;
+      case 'NIGHT_ACTIVITY':
+        showGameEventToast(
+          typeof data?.message === 'string'
+            ? data.message
+            : 'A secret night action has been completed.'
+        );
+        break;
+      case 'GAME_OVER':
+        showGameEventToast('The match is over. The final roles are revealed!', 'success');
+        break;
+      default:
+        break;
+    }
+  }, [currentUserId, getEventPlayer, showGameEventToast]);
 
   /*
    * Fetch complete game state.
@@ -134,6 +226,7 @@ export function GameProvider({ children }) {
               event
             );
 
+            notifyGameEvent(event);
             setLastEvent(event);
 
             /*
@@ -151,7 +244,10 @@ export function GameProvider({ children }) {
       },
       [
         fetchGameState,
+        notifyGameEvent,
+        showGameEventToast,
         token,
+        currentUserId,
       ]
     );
 
@@ -216,13 +312,13 @@ export function GameProvider({ children }) {
    * Support the different shapes used
    * by AuthContext/backend.
    */
-  const currentUserId =
-    user?.userId ??
-    user?.id ??
-    user?.userID ??
-    user?.user?.userId ??
-    user?.user?.id ??
-    null;
+  // const currentUserId =
+  //   user?.userId ??
+  //   user?.id ??
+  //   user?.userID ??
+  //   user?.user?.userId ??
+  //   user?.user?.id ??
+  //   null;
 
   const currentUsername =
     user?.username ??

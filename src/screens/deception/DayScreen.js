@@ -1,44 +1,30 @@
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
-
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 
+import Screen from '../../components/Screen';
 import GlassCard from '../../components/GlassCard';
 import GlassButton from '../../components/GlassButton';
+import GameHud from '../../components/GameHud';
+import GameChat from '../../components/GameChat';
+import Avatar from '../../components/Avatar';
 
 import colors from '../../theme/colors';
-
-import {
-  useGame,
-} from '../../context/GameContext';
-
-import {
-  useAuth,
-} from '../../context/AuthContext';
-
-import {
-  getInvestigationResult,
-  sendGameChatMessage,
-  startVoting,
-} from '../../api/deceptionApi';
+import spacing from '../../theme/spacing';
+import { useGame } from '../../context/GameContext';
+import { useAuth } from '../../context/AuthContext';
+import { getInvestigationResult, sendGameChatMessage, startVoting } from '../../api/deceptionApi';
 import { getApiErrorMessage } from '../../api/apiUtils';
 import { useToast } from '../../context/ToastContext';
+import { playSfx } from '../../utils/soundEffects';
 
-
-export default function DayScreen({
-  navigation,
-}) {
-
+export default function DayScreen({ navigation }) {
   const {
     sessionId,
     gamePhase,
@@ -51,1851 +37,344 @@ export default function DayScreen({
     fetchGameState,
   } = useGame();
 
-  const {
-    user,
-  } = useAuth();
+  const { user } = useAuth();
   const { showToast } = useToast();
 
+  const [startingVoting, setStartingVoting] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [investigation, setInvestigation] = useState(null);
 
-  /*
-   * DAY STATE
-   */
+  const safePlayers = Array.isArray(players) ? players : [];
+  const currentUserId = user?.userId ?? user?.id ?? user?.userID ?? user?.user?.userId ?? null;
+  const currentDisplayName = user?.displayName ?? user?.user?.displayName ?? yourUsername ?? 'Player';
 
-  const [
-    startingVoting,
-    setStartingVoting,
-  ] = useState(false);
+  const isSamePlayer = (player) => {
+    if (!player) return false;
+    if (currentUserId != null && player.userId != null) {
+      return String(player.userId) === String(currentUserId);
+    }
+    return String(player.displayName || '').toLowerCase() === String(currentDisplayName).toLowerCase();
+  };
 
-  const [
-    message,
-    setMessage,
-  ] = useState('');
+  const currentPlayer = useMemo(() => {
+    return safePlayers.find((p) => isSamePlayer(p)) ?? null;
+  }, [players, currentUserId, currentDisplayName]);
 
-  const [
-    messages,
-    setMessages,
-  ] = useState([]);
+  const isAlive = currentPlayer ? currentPlayer.alive !== false : true;
 
-  const [
-    investigation,
-    setInvestigation,
-  ] = useState(null);
-
-
-  /*
-   * SAFE PLAYERS
-   */
-
-  const safePlayers =
-    Array.isArray(players)
-      ? players
-      : [];
-
-
-  /*
-   * CURRENT USER
-   */
-
-  const currentUserId =
-    user?.userId ??
-    user?.id ??
-    user?.userID ??
-    user?.user?.userId ??
-    user?.user?.id ??
-    null;
-
-  const currentDisplayName =
-    user?.displayName ??
-    user?.user?.displayName ??
-    yourUsername ??
-    user?.username ??
-    user?.user?.username ??
-    'Player';
-
-
-  /*
-   * NORMALIZED ROLE
-   */
-
-  const normalizedRole =
-    String(yourRole || '')
-      .trim()
-      .toUpperCase();
-
-
-  /*
-   * PLAYER IDENTITY
-   *
-   * Prefer userId.
-   * Display name is fallback.
-   */
-
-  const isSamePlayer =
-    (player) => {
-
-      if (!player) {
-        return false;
-      }
-
-      if (
-        currentUserId != null &&
-        player.userId != null
-      ) {
-        return (
-          String(player.userId) ===
-          String(currentUserId)
-        );
-      }
-
-      if (
-        player.displayName &&
-        currentDisplayName
-      ) {
-        return (
-          String(player.displayName)
-            .trim()
-            .toLowerCase() ===
-          String(currentDisplayName)
-            .trim()
-            .toLowerCase()
-        );
-      }
-
-      return false;
-    };
-
-
-  /*
-   * CURRENT PLAYER
-   */
-
-  const currentPlayer =
-    useMemo(
-      () => {
-
-        return safePlayers.find(
-          (player) =>
-            isSamePlayer(player)
-        ) ?? null;
-
-      },
-      [
-        players,
-        currentUserId,
-        currentDisplayName,
-      ]
-    );
-
-
-  /*
-   * ALIVE STATUS
-   */
-
-  const isAlive =
-    currentPlayer
-      ? currentPlayer.alive !== false
-      : true;
-
-
-  /*
-   * CHAT EVENTS
-   *
-   * WebSocket
-   *     ↓
-   * GameContext
-   *     ↓
-   * lastEvent
-   */
-
+  // Sound cue on enter
   useEffect(() => {
+    playSfx('emergency');
+  }, []);
 
-    if (
-      lastEvent?.type !==
-      'CHAT_MESSAGE'
-    ) {
-      return;
-    }
-
-    const chat =
-      lastEvent.data;
-
-    if (!chat) {
-      return;
-    }
-
-    setMessages(
-      (previous) => {
-
-        const alreadyExists =
-          previous.some(
-            (item) => {
-
-              if (
-                item.messageId &&
-                chat.messageId
-              ) {
-                return (
-                  String(
-                    item.messageId
-                  ) ===
-                  String(
-                    chat.messageId
-                  )
-                );
-              }
-
-              return (
-                String(item.userId) ===
-                  String(chat.userId) &&
-                item.message ===
-                  chat.message
-              );
-            }
-          );
-
-        if (alreadyExists) {
-          return previous;
+  // Fetch Detective investigation report if detective
+  useEffect(() => {
+    if (!sessionId || String(yourRole || '').toUpperCase() !== 'DETECTIVE') return;
+    getInvestigationResult(sessionId)
+      .then((res) => {
+        if (res?.investigatedPlayerName) {
+          setInvestigation(res);
         }
+      })
+      .catch(() => {});
+  }, [sessionId, yourRole, roundNumber]);
 
-        return [
-          ...previous,
-          chat,
-        ];
-      }
-    );
-
-  }, [
-    lastEvent,
-  ]);
-
-
-  /*
-   * DETECTIVE INVESTIGATION
-   *
-   * Only:
-   *
-   * - DAY
-   * - DETECTIVE
-   * - alive
-   * - valid session
-   */
-
+  // Handle incoming websocket chat & phase change events
   useEffect(() => {
+    if (!lastEvent) return;
 
-    if (
-      gamePhase !== 'DAY' ||
-      normalizedRole !== 'DETECTIVE' ||
-      !sessionId ||
-      !isAlive
-    ) {
-      return;
+    if (lastEvent.type === 'CHAT_MESSAGE' && lastEvent.data) {
+      const chat = lastEvent.data;
+      setMessages((prev) => {
+        const exists = prev.some((m) => (m.messageId && chat.messageId && String(m.messageId) === String(chat.messageId)) ||
+          (String(m.userId) === String(chat.userId) && m.message === chat.message && Math.abs((m.timestamp || 0) - (chat.timestamp || 0)) < 1000));
+        if (exists) return prev;
+        return [...prev, { ...chat, timestamp: chat.timestamp || Date.now() }];
+      });
     }
 
-    let mounted = true;
-
-    async function loadInvestigation() {
-
-      try {
-
-        const result =
-          await getInvestigationResult(
-            sessionId
-          );
-
-        if (
-          mounted &&
-          result
-        ) {
-          setInvestigation(
-            result
-          );
-        }
-
-      } catch (error) {
-
-        console.log(
-          'Investigation result not available yet.'
-        );
+    if (lastEvent.type === 'PHASE_CHANGED') {
+      const newPhase = lastEvent.data?.phase || lastEvent.data;
+      if (newPhase === 'VOTING') {
+        playSfx('vote');
+        navigation.replace('Voting');
+      } else if (newPhase === 'GAME_OVER') {
+        navigation.replace('GameOver');
       }
     }
+  }, [lastEvent, navigation]);
 
-    loadInvestigation();
-
-    return () => {
-      mounted = false;
-    };
-
-  }, [
-    gamePhase,
-    normalizedRole,
-    sessionId,
-    roundNumber,
-    isAlive,
-  ]);
-
-
-  /*
-   * PLAYER ELIMINATION EVENT
-   */
-
-  const eliminatedByEvent =
-    useMemo(() => {
-
-      if (
-        lastEvent?.type ===
-        'PLAYER_ELIMINATED'
-      ) {
-        return lastEvent.data;
-      }
-
-      return null;
-
-    }, [
-      lastEvent,
-    ]);
-
-
-  /*
-   * PLAYER NAME
-   */
-
-  const getPlayerName =
-    (userId) => {
-
-      const player =
-        safePlayers.find(
-          (item) =>
-            String(item.userId) ===
-            String(userId)
-        );
-
-      return (
-        player?.displayName ??
-        'Unknown Player'
-      );
-    };
-
-
-  /*
-   * HOST:
-   * START VOTING
-   *
-   * Backend:
-   *
-   *     DAY → VOTING
-   *
-   * This is the ONLY action that
-   * changes the phase from DAY.
-   */
-
-  const handleStartVoting =
-    async () => {
-
-      if (!isHost) {
-        return;
-      }
-
-      if (
-        startingVoting ||
-        !sessionId
-      ) {
-        return;
-      }
-
-      if (
-        gamePhase !== 'DAY'
-      ) {
-        return;
-      }
-
-      try {
-
-        setStartingVoting(
-          true
-        );
-
-        await startVoting(
-          sessionId
-        );
-
-        /*
-         * Host refreshes authoritative
-         * game state immediately.
-         */
-
-        await fetchGameState(
-          sessionId
-        );
-
-      } catch (error) {
-
-        console.error(
-          'Failed to start voting:',
-          error
-        );
-
-        showToast(
-          getApiErrorMessage(error, 'The voting phase could not be started.')
-        );
-
-      } finally {
-
-        setStartingVoting(
-          false
-        );
-      }
-    };
-
-
-  /*
-   * VOTING_STARTED EVENT
-   *
-   * Non-host clients receive this
-   * event and refresh their state.
-   *
-   * Backend remains the source
-   * of truth.
-   */
-
+  // Check phase navigation
   useEffect(() => {
-
-    if (
-      lastEvent?.type !==
-      'VOTING_STARTED'
-    ) {
-      return;
+    if (gamePhase === 'VOTING') {
+      playSfx('vote');
+      navigation.replace('Voting');
+    } else if (gamePhase === 'GAME_OVER') {
+      navigation.replace('GameOver');
     }
+  }, [gamePhase, navigation]);
 
-    if (
-      !sessionId ||
-      isHost
-    ) {
-      return;
+  const handleSendMessage = async (text) => {
+    if (!sessionId || !isAlive) return;
+    try {
+      await sendGameChatMessage(sessionId, text);
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Failed to transmit message.'));
     }
+  };
 
-    fetchGameState(
-      sessionId
-    );
-
-  }, [
-    lastEvent,
-    sessionId,
-    isHost,
-    fetchGameState,
-  ]);
-
-
-  /*
-   * SEND CHAT
-   */
-
-  const handleSendMessage =
-    async () => {
-
-      const trimmed =
-        message.trim();
-
-      if (!trimmed) {
-        return;
-      }
-
-      if (!sessionId) {
-
-        showToast('The game session is not available.');
-
-        return;
-      }
-
-      if (!isAlive) {
-
-        showToast('Dead players cannot send messages.');
-
-        return;
-      }
-
-      try {
-        await sendGameChatMessage(
-          sessionId,
-          trimmed
-        );
-        setMessage('');
-      } catch (error) {
-        showToast(
-          getApiErrorMessage(error, 'Chat message could not be sent.')
-        );
-      }
-
-    };
-
-
-  /*
-   * PHASE NAVIGATION
-   *
-   * GameContext's gamePhase is the
-   * authoritative navigation state.
-   */
-
-  useEffect(() => {
-
-    if (
-      gamePhase === 'VOTING'
-    ) {
-
-      navigation.replace(
-        'Voting'
-      );
-
-      return;
+  const handleStartVoting = async () => {
+    if (!isHost || startingVoting) return;
+    try {
+      setStartingVoting(true);
+      playSfx('emergency');
+      await startVoting(sessionId);
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Could not initiate voting phase.'));
+      setStartingVoting(false);
     }
+  };
 
-    if (
-      gamePhase === 'NIGHT'
-    ) {
-
-      navigation.replace(
-        'Night'
-      );
-
-      return;
-    }
-
-    if (
-      gamePhase === 'GAME_OVER'
-    ) {
-
-      navigation.replace(
-        'GameOver'
-      );
-    }
-
-  }, [
-    gamePhase,
-    navigation,
-  ]);
-
-
-  /*
-   * SESSION GUARD
-   */
-
-  if (!sessionId) {
-
-    return (
-      <View
-        style={
-          styles.loadingContainer
-        }
-      >
-
-        <Text
-          style={
-            styles.errorTitle
-          }
-        >
-          Game session unavailable
-        </Text>
-
-        <GlassButton
-          title="BACK TO GAMEHUB"
-          onPress={() =>
-            navigation.replace(
-              'Home'
-            )
-          }
-        />
-
-      </View>
-    );
-  }
-
-
-  /*
-   * DAY GUARD
-   */
-
-  if (
-    gamePhase !== 'DAY'
-  ) {
-    return null;
-  }
-
+  const livingPlayers = safePlayers.filter((p) => p.alive !== false && !p.left);
+  const deadPlayers = safePlayers.filter((p) => p.alive === false);
 
   return (
-    <View
-      style={
-        styles.screen
-      }
-    >
+    <Screen style={styles.screen}>
+      <View style={styles.mobileContainer}>
+        {/* HUD */}
+        <GameHud
+          phase={gamePhase || 'DAY'}
+          roundNumber={roundNumber}
+          players={safePlayers}
+          username={yourUsername}
+          displayName={currentDisplayName}
+          avatarUrl={user?.avatarUrl}
+          role={yourRole}
+          observer={!isAlive}
+        />
 
-      <ScrollView
-        contentContainerStyle={
-          styles.container
-        }
-        showsVerticalScrollIndicator={
-          false
-        }
-      >
-
-        {/* =========================
-            HEADER
-        ========================== */}
-
-        <View
-          style={
-            styles.header
-          }
-        >
-
-          <View>
-
-            <Text
-              style={
-                styles.eyebrow
-              }
-            >
-              ROUND {roundNumber}
-            </Text>
-
-            <Text
-              style={
-                styles.title
-              }
-            >
-              DAY DISCUSSION
-            </Text>
-
-            <Text
-              style={
-                styles.subtitle
-              }
-            >
-              Find the deception before
-              it is too late.
-            </Text>
-
+        {/* AMONG US EMERGENCY BANNER */}
+        <View style={styles.emergencyBanner}>
+          <View style={styles.emergencyIconWrap}>
+            <Text style={styles.emergencyIcon}>📢</Text>
           </View>
-
+          <View style={{ flex: 1 }}>
+            <Text style={styles.emergencyTitle}>EMERGENCY DISCUSSION</Text>
+            <Text style={styles.emergencySubtitle}>
+              {deadPlayers.length > 0
+                ? `${deadPlayers.length} crewmates eliminated. Who is suspicious?`
+                : 'All crewmates alive. Question everyone and identify the Impostor!'}
+            </Text>
+          </View>
         </View>
 
-
-        {/* =========================
-            YOUR IDENTITY
-        ========================== */}
-
-        <GlassCard
-          style={
-            !isAlive
-              ? styles.deadCard
-              : styles.identityCard
-          }
-        >
-
-          <View
-            style={
-              styles.identityHeader
-            }
-          >
-
-            <View>
-
-              <Text
-                style={
-                  styles.sectionLabel
-                }
-              >
-                YOUR IDENTITY
+        {/* DETECTIVE SCAN INTEL (IF AVAILABLE) */}
+        {investigation && (
+          <View style={styles.intelCard}>
+            <Text style={styles.intelKicker}>🔍 SECURITY SCAN RESULT</Text>
+            <Text style={styles.intelText}>
+              Target <Text style={styles.intelTarget}>{investigation.investigatedPlayerName}</Text> was scanned as{' '}
+              <Text style={{ color: investigation.isPredator ? colors.amongRedBright : colors.amongBlueBright, fontFamily: 'Inter-Bold' }}>
+                {investigation.isPredator ? 'IMPOSTOR / PREDATOR 🚨' : 'INNOCENT CREWMATE ✓'}
               </Text>
-
-              <Text
-                style={
-                  styles.identityName
-                }
-              >
-                {yourUsername ||
-                  currentDisplayName ||
-                  'YOU'}
-              </Text>
-
-            </View>
-
-            <View
-              style={
-                styles.youBadge
-              }
-            >
-
-              <Text
-                style={
-                  styles.youBadgeText
-                }
-              >
-                YOU
-              </Text>
-
-            </View>
-
+            </Text>
           </View>
-
-
-          {!isAlive ? (
-
-            <View
-              style={
-                styles.statusBox
-              }
-            >
-
-              <Text
-                style={
-                  styles.statusIcon
-                }
-              >
-                ☠
-              </Text>
-
-              <View>
-
-                <Text
-                  style={
-                    styles.killedTitle
-                  }
-                >
-                  YOU HAVE BEEN KILLED
-                </Text>
-
-                <Text
-                  style={
-                    styles.killedText
-                  }
-                >
-                  You are now an observer.
-                </Text>
-
-              </View>
-
-            </View>
-
-          ) : (
-
-            <View
-              style={
-                styles.roleBox
-              }
-            >
-
-              <Text
-                style={
-                  styles.roleLabel
-                }
-              >
-                YOUR ROLE
-              </Text>
-
-              <Text
-                style={
-                  styles.roleText
-                }
-              >
-                {normalizedRole ||
-                  'UNKNOWN'}
-              </Text>
-
-              <Text
-                style={
-                  styles.roleHint
-                }
-              >
-                {normalizedRole ===
-                'PREDATOR'
-                  ? 'You are a PREDATOR. Stay hidden and eliminate the others.'
-                  : normalizedRole ===
-                    'DOCTOR'
-                  ? 'You are the DOCTOR. Protect the right player at night.'
-                  : normalizedRole ===
-                    'DETECTIVE'
-                  ? 'You are the DETECTIVE. Your investigation result is private.'
-                  : 'You are INNOCENT. Work with the others to find the predators.'}
-              </Text>
-
-            </View>
-
-          )}
-
-        </GlassCard>
-
-
-        {/* =========================
-            ELIMINATION NOTICE
-        ========================== */}
-
-        {eliminatedByEvent != null && (
-
-          <GlassCard
-            style={
-              styles.eliminationCard
-            }
-          >
-
-            <Text
-              style={
-                styles.eliminationTitle
-              }
-            >
-              PLAYER ELIMINATED
-            </Text>
-
-            <Text
-              style={
-                styles.eliminationName
-              }
-            >
-              {getPlayerName(
-                eliminatedByEvent
-              )}
-            </Text>
-
-          </GlassCard>
-
         )}
 
-
-        {/* =========================
-            DETECTIVE RESULT
-        ========================== */}
-
-        {isAlive &&
-          normalizedRole ===
-            'DETECTIVE' &&
-          investigation && (
-
-          <GlassCard
-            style={
-              styles.investigationCard
-            }
-          >
-
-            <Text
-              style={
-                styles.sectionLabel
-              }
-            >
-              PRIVATE INVESTIGATION
-            </Text>
-
-            <Text
-              style={
-                styles.investigationPlayer
-              }
-            >
-              {getPlayerName(
-                investigation.investigatedUserId
-              )}
-            </Text>
-
-            <Text
-              style={
-                styles.investigationResult
-              }
-            >
-              ROLE:{' '}
-              {String(
-                investigation.role ||
-                'UNKNOWN'
-              ).toUpperCase()}
-            </Text>
-
-            <Text
-              style={
-                styles.privateText
-              }
-            >
-              Only you can see this result.
-            </Text>
-
-          </GlassCard>
-
-        )}
-
-
-        {/* =========================
-            PLAYERS
-        ========================== */}
-
-        <View
-          style={
-            styles.sectionHeader
-          }
-        >
-
-          <Text
-            style={
-              styles.sectionTitle
-            }
-          >
-            PLAYERS
-          </Text>
-
-          <Text
-            style={
-              styles.playerCount
-            }
-          >
-            {safePlayers.length} players
-          </Text>
-
-        </View>
-
-
-        <View
-          style={
-            styles.playersList
-          }
-        >
-
-          {safePlayers.map(
-            (player) => {
-
-              const isYou =
-                isSamePlayer(
-                  player
-                );
-
-              const playerLeft =
-                player.left === true;
-
-              const playerEliminated =
-                player.alive === false && !playerLeft;
-
+        {/* CREWMATE ROSTER HORIZONTAL CHIPS */}
+        <View style={styles.rosterSection}>
+          <Text style={styles.rosterKicker}>CREWMATE ROSTER ({livingPlayers.length} ALIVE · {deadPlayers.length} GHOSTS)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rosterScroll}>
+            {safePlayers.map((p, idx) => {
+              const alive = p.alive !== false && !p.left;
+              const isYou = isSamePlayer(p);
               return (
-                <GlassCard
-                  key={
-                    String(
-                      player.userId
-                    )
-                  }
-                  style={[
-                    styles.playerCard,
-                    isYou &&
-                      styles.youPlayerCard,
-                    playerEliminated &&
-                      styles.deadPlayerCard,
-                  ]}
+                <View
+                  key={p.userId || idx}
+                  style={[styles.rosterChip, !alive && styles.rosterChipDead, isYou && styles.rosterChipYou]}
                 >
-
-                  <View
-                    style={
-                      styles.playerInfo
-                    }
-                  >
-
-                    <View
-                      style={
-                        styles.avatar
-                      }
-                    >
-
-                      <Text
-                        style={
-                          styles.avatarText
-                        }
-                      >
-                        {(
-                          player.displayName ||
-                          '?'
-                        )
-                          .charAt(0)
-                          .toUpperCase()}
-                      </Text>
-
-                    </View>
-
-                    <View
-                      style={
-                        styles.playerDetails
-                      }
-                    >
-
-                      <View
-                        style={
-                          styles.playerNameRow
-                        }
-                      >
-
-                        <Text
-                          style={[
-                            styles.playerName,
-                            playerEliminated &&
-                              styles.deadName,
-                          ]}
-                        >
-                          {
-                            player.displayName ||
-                            'Unknown Player'
-                          }
-                        </Text>
-
-                        {isYou && (
-
-                          <View
-                            style={
-                              styles.youMiniBadge
-                            }
-                          >
-
-                            <Text
-                              style={
-                                styles.youMiniBadgeText
-                              }
-                            >
-                              YOU
-                            </Text>
-
-                          </View>
-
-                        )}
-
-                      </View>
-
-                      <Text
-                        style={
-                          playerLeft
-                            ? styles.leftStatus
-                            : playerEliminated
-                              ? styles.deadStatus
-                              : styles.aliveStatus
-                        }
-                      >
-                        {playerLeft
-                          ? 'LEFT GAME'
-                          : playerEliminated
-                            ? 'ELIMINATED'
-                            : 'ALIVE'}
-                      </Text>
-
-                    </View>
-
-                  </View>
-
-                  <View
-                    style={[
-                      styles.statusDot,
-                      {
-                        backgroundColor:
-                          playerLeft
-                            ? colors.textMuted
-                            : playerEliminated
-                              ? colors.danger
-                              : colors.success,
-                      },
-                    ]}
-                  />
-
-                </GlassCard>
+                  <Avatar uri={p.avatarUrl} name={p.displayName || p.username} size={24} />
+                  <Text numberOfLines={1} style={[styles.rosterName, !alive && styles.rosterNameDead]}>
+                    {p.displayName || p.username}{isYou ? ' (You)' : ''}
+                  </Text>
+                  {!alive && <Text style={styles.ghostIcon}>👻</Text>}
+                </View>
               );
-            }
-          )}
-
+            })}
+          </ScrollView>
         </View>
 
+        {/* SHIP RADIO / GAME CHAT */}
+        <View style={styles.chatSection}>
+          <GameChat
+            messages={messages}
+            isAlive={isAlive}
+            onSend={handleSendMessage}
+            maxHeight={200}
+          />
+        </View>
 
-        {/* =========================
-            DISCUSSION CONTROL
-        ========================== */}
-
-        <GlassCard
-          style={
-            styles.discussionCard
-          }
-        >
-
-          <Text
-            style={
-              styles.sectionLabel
-            }
+        {/* EMERGENCY PROCEED TO VOTING (HOST ACTION) */}
+        {isHost && isAlive && (
+          <Pressable
+            onPress={handleStartVoting}
+            disabled={startingVoting}
+            style={({ pressed }) => [styles.emergencyVoteBtn, pressed && styles.btnPressed]}
           >
-            DISCUSSION CONTROL
-          </Text>
-
-
-          {isHost ? (
-
-            <>
-
-              <Text
-                style={
-                  styles.controlText
-                }
-              >
-                You are the host. Start
-                voting whenever you are ready.
-              </Text>
-
-              <GlassButton
-                title={
-                  startingVoting
-                    ? 'STARTING VOTING...'
-                    : 'START VOTING'
-                }
-                onPress={
-                  handleStartVoting
-                }
-                disabled={
-                  startingVoting
-                }
-              />
-
-            </>
-
-          ) : (
-
-            <View
-              style={
-                styles.waitingBox
-              }
-            >
-
-              <Text
-                style={
-                  styles.waitingTitle
-                }
-              >
-                WAITING FOR HOST
-              </Text>
-
-              <Text
-                style={
-                  styles.waitingText
-                }
-              >
-                The host will start the
-                voting phase when ready.
-              </Text>
-
-            </View>
-
-          )}
-
-        </GlassCard>
-
-
-        {/* =========================
-            CHAT
-        ========================== */}
-
-        <GlassCard
-          style={
-            styles.chatCard
-          }
-        >
-
-          <View
-            style={
-              styles.chatHeader
-            }
-          >
-
-            <View>
-
-              <Text
-                style={
-                  styles.sectionLabel
-                }
-              >
-                DISCUSSION CHAT
-              </Text>
-
-              <Text
-                style={
-                  styles.chatSubtitle
-                }
-              >
-                Day chat is active
-              </Text>
-
-            </View>
-
-          </View>
-
-
-          <View
-            style={
-              styles.messagesContainer
-            }
-          >
-
-            {messages.length === 0 ? (
-
-              <Text
-                style={
-                  styles.emptyChat
-                }
-              >
-                No messages yet.
-              </Text>
-
-            ) : (
-
-              messages.map(
-                (chat, index) => (
-
-                  <View
-                    key={
-                      chat.messageId
-                        ? String(
-                            chat.messageId
-                          )
-                        : `${chat.userId}-${index}`
-                    }
-                    style={
-                      styles.messageRow
-                    }
-                  >
-
-                    <View
-                      style={
-                        styles.messageAvatar
-                      }
-                    >
-
-                      <Text
-                        style={
-                          styles.messageAvatarText
-                        }
-                      >
-                        {(
-                          chat.displayName ||
-                          '?'
-                        )
-                          .charAt(0)
-                          .toUpperCase()}
-                      </Text>
-
-                    </View>
-
-                    <View
-                      style={
-                        styles.messageContent
-                      }
-                    >
-
-                      <Text
-                        style={
-                          styles.messageAuthor
-                        }
-                      >
-                        {chat.displayName ||
-                          'Player'}
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.messageText
-                        }
-                      >
-                        {chat.message}
-                      </Text>
-
-                    </View>
-
-                  </View>
-
-                )
-              )
-
-            )}
-
-          </View>
-
-
-          <View
-            style={
-              styles.chatInputRow
-            }
-          >
-
-            <TextInput
-              value={
-                message
-              }
-              onChangeText={
-                setMessage
-              }
-              placeholder={
-                isAlive
-                  ? 'Type a message...'
-                  : 'You are an observer'
-              }
-              placeholderTextColor={
-                colors.textMuted
-              }
-              editable={
-                isAlive
-              }
-              style={[
-                styles.chatInput,
-                !isAlive &&
-                  styles.disabledInput,
-              ]}
-              maxLength={
-                300
-              }
-              multiline
-            />
-
-            <Pressable
-              onPress={
-                handleSendMessage
-              }
-              disabled={
-                !isAlive
-              }
-              style={[
-                styles.sendButton,
-                !isAlive &&
-                  styles.disabledSendButton,
-              ]}
-            >
-
-              <Text
-                style={
-                  styles.sendButtonText
-                }
-              >
-                SEND
-              </Text>
-
-            </Pressable>
-
-          </View>
-
-        </GlassCard>
-
-      </ScrollView>
-
-    </View>
+            <Text style={styles.emergencyVoteBtnText}>
+              {startingVoting ? 'COMMENCING VOTING...' : '🗳️ INITIATE VOTING SESSION'}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </Screen>
   );
 }
 
-
-/*
- * =============================
- * STYLES
- * =============================
- */
-
 const styles = StyleSheet.create({
-
-  /*
-   * DARK SCREEN
-   */
-
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
   },
-
-  container: {
-    padding: 20,
-    paddingBottom: 50,
-  },
-
-
-  /*
-   * HEADER
-   */
-
-  header: {
-    flexDirection: 'row',
+  mobileContainer: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
+    maxWidth: 600,
+    width: '100%',
+    alignSelf: 'center',
   },
-
-  eyebrow: {
-    color: colors.primary,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 12,
-    letterSpacing: 1.5,
-  },
-
-  title: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 27,
-    marginTop: 4,
-  },
-
-  subtitle: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 13,
-    marginTop: 6,
-    maxWidth: 280,
-  },
-
-
-  /*
-   * IDENTITY
-   */
-
-  identityCard: {
-    marginBottom: 16,
-  },
-
-  deadCard: {
-    marginBottom: 16,
-    borderColor: colors.danger,
-  },
-
-  identityHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  sectionLabel: {
-    color: colors.textMuted,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 10,
-    letterSpacing: 1.3,
-  },
-
-  identityName: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 20,
-    marginTop: 5,
-  },
-
-  youBadge: {
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-
-  youBadgeText: {
-    color: colors.white,
-    fontFamily: 'Inter-Bold',
-    fontSize: 10,
-  },
-
-  roleBox: {
-    marginTop: 16,
-    padding: 15,
-    backgroundColor: colors.surfaceStrong,
-    borderRadius: 15,
-  },
-
-  roleLabel: {
-    color: colors.textMuted,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 10,
-  },
-
-  roleText: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 23,
-    marginTop: 4,
-  },
-
-  roleHint: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 12,
-    marginTop: 7,
-    lineHeight: 18,
-  },
-
-  statusBox: {
+  emergencyBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
-    padding: 15,
+    gap: 10,
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderRadius: 15,
-  },
-
-  statusIcon: {
-    color: colors.danger,
-    fontSize: 25,
-    marginRight: 12,
-  },
-
-  killedTitle: {
-    color: colors.danger,
-    fontFamily: 'Inter-Bold',
-    fontSize: 14,
-  },
-
-  killedText: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 12,
-    marginTop: 3,
-  },
-
-
-  /*
-   * ELIMINATION
-   */
-
-  eliminationCard: {
-    marginBottom: 16,
-    borderColor: colors.danger,
-  },
-
-  eliminationTitle: {
-    color: colors.danger,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 10,
-    letterSpacing: 1,
-  },
-
-  eliminationName: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 19,
-    marginTop: 5,
-  },
-
-
-  /*
-   * INVESTIGATION
-   */
-
-  investigationCard: {
-    marginBottom: 16,
-    borderColor: colors.primary,
-  },
-
-  investigationPlayer: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 18,
-    marginTop: 8,
-  },
-
-  investigationResult: {
-    color: colors.primary,
-    fontFamily: 'Inter-Bold',
-    fontSize: 17,
-    marginTop: 4,
-  },
-
-  privateText: {
-    color: colors.textMuted,
-    fontFamily: 'Inter',
-    fontSize: 11,
-    marginTop: 8,
-  },
-
-
-  /*
-   * PLAYERS
-   */
-
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 5,
-    marginBottom: 10,
-  },
-
-  sectionTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 16,
-  },
-
-  playerCount: {
-    color: colors.textMuted,
-    fontFamily: 'Inter',
-    fontSize: 12,
-  },
-
-  playersList: {
-    marginBottom: 16,
-  },
-
-  playerCard: {
-    padding: 14,
-    marginBottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  youPlayerCard: {
-    borderColor: colors.primary,
-    borderWidth: 1.5,
-  },
-
-  deadPlayerCard: {
-    opacity: 0.65,
-  },
-
-  playerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.surfaceStrong,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  avatarText: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 16,
-  },
-
-  playerDetails: {
-    marginLeft: 12,
-    flex: 1,
-  },
-
-  playerNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  playerName: {
-    color: colors.text,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 14,
-  },
-
-  deadName: {
-    color: colors.textMuted,
-  },
-
-  youMiniBadge: {
-    backgroundColor: colors.primary,
-    borderRadius: 5,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    marginLeft: 7,
-  },
-
-  youMiniBadgeText: {
-    color: colors.white,
-    fontFamily: 'Inter-Bold',
-    fontSize: 8,
-  },
-
-  aliveStatus: {
-    color: colors.success,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 9,
-    marginTop: 3,
-  },
-
-  deadStatus: {
-    color: colors.danger,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 9,
-    marginTop: 3,
-  },
-
-  leftStatus: {
-    color: colors.textMuted,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 9,
-    marginTop: 3,
-  },
-
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-
-
-  /*
-   * DISCUSSION CONTROL
-   */
-
-  discussionCard: {
-    marginBottom: 16,
-  },
-
-  controlText: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 9,
-    marginBottom: 15,
-  },
-
-  waitingBox: {
-    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
     borderRadius: 14,
-    padding: 15,
-    marginTop: 10,
+    padding: 10,
+    marginBottom: 8,
   },
-
-  waitingTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 13,
-  },
-
-  waitingText: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 5,
-  },
-
-
-  /*
-   * CHAT
-   */
-
-  chatCard: {
-    marginBottom: 20,
-  },
-
-  chatHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-
-  chatSubtitle: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 12,
-    marginTop: 4,
-  },
-
-  messagesContainer: {
-    minHeight: 100,
-    maxHeight: 300,
-    marginTop: 15,
-    marginBottom: 12,
-  },
-
-  emptyChat: {
-    color: colors.textMuted,
-    fontFamily: 'Inter',
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 30,
-  },
-
-  messageRow: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    alignItems: 'flex-start',
-  },
-
-  messageAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceStrong,
-    justifyContent: 'center',
+  emergencyIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.amongRedBright,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  messageAvatarText: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
+  emergencyIcon: {
+    fontSize: 18,
+  },
+  emergencyTitle: {
+    color: colors.amongRedBright,
+    fontFamily: 'Inter-ExtraBold',
     fontSize: 12,
+    letterSpacing: 0.8,
   },
-
-  messageContent: {
-    marginLeft: 9,
-    flex: 1,
-  },
-
-  messageAuthor: {
+  emergencySubtitle: {
     color: colors.textSecondary,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 11,
+    fontFamily: 'Inter',
+    fontSize: 10.5,
+    lineHeight: 14,
   },
-
-  messageText: {
+  intelCard: {
+    backgroundColor: 'rgba(0, 240, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 240, 255, 0.3)',
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 8,
+  },
+  intelKicker: {
+    color: colors.neonCyan,
+    fontFamily: 'Inter-Bold',
+    fontSize: 9,
+    letterSpacing: 0.8,
+  },
+  intelText: {
     color: colors.text,
     fontFamily: 'Inter',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 11,
     marginTop: 2,
   },
-
-  chatInputRow: {
+  intelTarget: {
+    color: colors.neonCyan,
+    fontFamily: 'Inter-Bold',
+  },
+  rosterSection: {
+    marginBottom: 8,
+  },
+  rosterKicker: {
+    color: colors.textMuted,
+    fontFamily: 'Inter-Bold',
+    fontSize: 8.5,
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  rosterScroll: {
+    gap: 6,
+    paddingVertical: 2,
+  },
+  rosterChip: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-
-  chatInput: {
-    flex: 1,
-    minHeight: 48,
-    maxHeight: 100,
-    backgroundColor: colors.surfaceStrong,
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  rosterChipDead: {
+    opacity: 0.45,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  rosterChipYou: {
+    borderColor: colors.neonCyan,
+    backgroundColor: 'rgba(0, 240, 255, 0.08)',
+  },
+  rosterName: {
     color: colors.text,
-    fontFamily: 'Inter',
-    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    fontSize: 10,
+    maxWidth: 90,
   },
-
-  disabledInput: {
-    opacity: 0.5,
+  rosterNameDead: {
+    color: colors.textMuted,
+    textDecorationLine: 'line-through',
   },
-
-  sendButton: {
-    minHeight: 48,
-    paddingHorizontal: 15,
-    borderRadius: 14,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
+  ghostIcon: {
+    fontSize: 10,
   },
-
-  disabledSendButton: {
-    opacity: 0.4,
-  },
-
-  sendButtonText: {
-    color: colors.white,
-    fontFamily: 'Inter-Bold',
-    fontSize: 11,
-  },
-
-
-  /*
-   * LOADING
-   */
-
-  loadingContainer: {
+  chatSection: {
     flex: 1,
-    backgroundColor: colors.background,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    minHeight: 180,
+    marginBottom: 8,
+  },
+  emergencyVoteBtn: {
+    backgroundColor: colors.amongRedBright,
+    minHeight: 44,
+    borderRadius: 12,
     alignItems: 'center',
-    paddingHorizontal: 24,
+    justifyContent: 'center',
+    shadowColor: colors.amongRedBright,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
   },
-
-  errorTitle: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 20,
-    marginBottom: 20,
+  emergencyVoteBtnText: {
+    color: colors.white,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 12,
+    letterSpacing: 0.8,
   },
-
+  btnPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.98 }],
+  },
 });

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-
 import {
   View,
   Text,
@@ -17,10 +16,10 @@ import GlassButton from '../../components/GlassButton';
 import Logo from '../../components/Logo';
 
 import colors from '../../theme/colors';
-
 import { register } from '../../api/authApi';
 import { getApiErrorMessage } from '../../api/apiUtils';
 import { useToast } from '../../context/ToastContext';
+import { playSfx } from '../../utils/soundEffects';
 
 export default function RegisterScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -38,11 +37,13 @@ export default function RegisterScreen({ navigation }) {
       !email.trim() ||
       !password
     ) {
-      showToast('Please fill in all fields.');
+      playSfx('error');
+      showToast('Please fill in all player fields.');
       return;
     }
 
     if (password.length < 6) {
+      playSfx('error');
       showToast('Password must be at least 6 characters.');
       return;
     }
@@ -57,17 +58,13 @@ export default function RegisterScreen({ navigation }) {
         password,
       });
 
-      showToast('Account created. Sign in to continue.', 'success');
+      playSfx('fanfare');
+      showToast('Account created. Sign in to enter the arena!', 'success');
       navigation.replace('Login');
     } catch (error) {
-      console.error(
-        'Registration failed:',
-        error
-      );
-
-      showToast(
-        getApiErrorMessage(error, 'Unable to create your account.')
-      );
+      console.error('Registration failed:', error);
+      playSfx('error');
+      showToast(getApiErrorMessage(error, 'Unable to create your player account.'));
     } finally {
       setLoading(false);
     }
@@ -77,11 +74,7 @@ export default function RegisterScreen({ navigation }) {
     <Screen>
       <KeyboardAvoidingView
         style={styles.keyboard}
-        behavior={
-          Platform.OS === 'ios'
-            ? 'padding'
-            : undefined
-        }
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
           contentContainerStyle={styles.container}
@@ -89,33 +82,38 @@ export default function RegisterScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           {/* HEADER */}
-
           <View style={styles.header}>
-            <Logo />
+            <Logo size="large" />
 
-            <Text style={styles.welcome}>
-              Join GameHub.
-            </Text>
+            <View style={styles.badgeRow}>
+              <View style={styles.kickerBadge}>
+                <Text style={styles.kickerText}>✨ NEW PLAYER ONBOARDING</Text>
+              </View>
+            </View>
 
+            <Text style={styles.welcome}>Create Gamer Tag</Text>
             <Text style={styles.description}>
-              Create your account and enter the hub.
+              Unlock party tools, track streaks, and host multiplayer games with friends.
             </Text>
           </View>
 
           {/* REGISTER CARD */}
-
-          <GlassCard style={styles.card}>
-            <Text style={styles.title}>
-              Create account
-            </Text>
-
-            <Text style={styles.subtitle}>
-              Set up your GameHub profile.
-            </Text>
+          <GlassCard glow="cyan" style={styles.card}>
+            <Text style={styles.title}>Player Registration</Text>
+            <Text style={styles.subtitle}>Set up your profile to start playing.</Text>
 
             <GlassInput
-              label="Username"
-              placeholder="Choose a username"
+              label="Player Name (Display Name)"
+              placeholder="e.g. Captain Pixel"
+              value={displayName}
+              onChangeText={setDisplayName}
+              autoCorrect={false}
+              editable={!loading}
+            />
+
+            <GlassInput
+              label="Unique GamerTag (Username)"
+              placeholder="e.g. captain_pixel_99"
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
@@ -124,17 +122,8 @@ export default function RegisterScreen({ navigation }) {
             />
 
             <GlassInput
-              label="Display Name"
-              placeholder="Enter your display name"
-              value={displayName}
-              onChangeText={setDisplayName}
-              autoCorrect={false}
-              editable={!loading}
-            />
-
-            <GlassInput
-              label="Email"
-              placeholder="Enter your email"
+              label="Email Address"
+              placeholder="player@gamehub.io"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -144,8 +133,8 @@ export default function RegisterScreen({ navigation }) {
             />
 
             <GlassInput
-              label="Password"
-              placeholder="Create a password"
+              label="Secret Key / Password"
+              placeholder="At least 6 characters"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -155,42 +144,34 @@ export default function RegisterScreen({ navigation }) {
             />
 
             <GlassButton
-              title={
-                loading
-                  ? 'CREATING ACCOUNT...'
-                  : 'CREATE ACCOUNT'
-              }
+              title={loading ? 'CREATING PROFILE...' : 'JOIN GAMEHUB ⚡'}
+              variant="cyan"
+              size="large"
               onPress={handleRegister}
               disabled={loading}
+              sfx="start"
             />
 
             {loading && (
               <ActivityIndicator
                 size="small"
-                color={colors.primary}
+                color={colors.neonCyan}
                 style={styles.loader}
               />
             )}
 
-            {/* LOGIN */}
-
             <View style={styles.loginRow}>
-              <Text style={styles.loginText}>
-                Already have an account?
-              </Text>
-
+              <Text style={styles.loginText}>Already registered?</Text>
               <Text
-                style={[
-                  styles.loginLink,
-                  loading && styles.disabledLink,
-                ]}
+                style={[styles.loginLink, loading && styles.disabledLink]}
                 onPress={() => {
                   if (!loading) {
-                    navigation.replace('Login');
+                    playSfx('click');
+                    navigation.navigate('Login');
                   }
                 }}
               >
-                Sign in
+                Sign in to Arena →
               </Text>
             </View>
           </GlassCard>
@@ -204,82 +185,88 @@ const styles = StyleSheet.create({
   keyboard: {
     flex: 1,
   },
-
   container: {
     flexGrow: 1,
     justifyContent: 'center',
-
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-
-    maxWidth: 520,
+    paddingHorizontal: 20,
+    paddingVertical: 36,
+    maxWidth: 480,
     width: '100%',
-
     alignSelf: 'center',
   },
-
   header: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
-
+  badgeRow: {
+    marginTop: 18,
+    marginBottom: 8,
+  },
+  kickerBadge: {
+    backgroundColor: 'rgba(16, 231, 117, 0.12)',
+    borderWidth: 1,
+    borderColor: colors.neonLime,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  kickerText: {
+    color: colors.neonLime,
+    fontFamily: 'Inter-Bold',
+    fontSize: 10,
+    letterSpacing: 1,
+  },
   welcome: {
     color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 22,
-    marginTop: 28,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 26,
+    letterSpacing: -0.5,
   },
-
   description: {
-    color: colors.textSecondary,
-    fontFamily: 'Inter',
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-
-  card: {
-    padding: 24,
-  },
-
-  title: {
-    color: colors.text,
-    fontFamily: 'Inter-Bold',
-    fontSize: 24,
-  },
-
-  subtitle: {
     color: colors.textSecondary,
     fontFamily: 'Inter',
     fontSize: 13,
     marginTop: 6,
-    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 12,
   },
-
-  loader: {
-    marginTop: 12,
+  card: {
+    padding: 22,
   },
-
+  title: {
+    color: colors.text,
+    fontFamily: 'Inter-Bold',
+    fontSize: 20,
+  },
+  subtitle: {
+    color: colors.textMuted,
+    fontFamily: 'Inter',
+    fontSize: 12,
+    marginTop: 4,
+    marginBottom: 20,
+  },
   loginRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 22,
+    alignItems: 'center',
+    marginTop: 20,
+    gap: 6,
   },
-
   loginText: {
     color: colors.textMuted,
     fontFamily: 'Inter',
-    fontSize: 13,
+    fontSize: 12,
   },
-
   loginLink: {
-    color: colors.primary,
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 13,
-    marginLeft: 5,
+    color: colors.neonCyan,
+    fontFamily: 'Inter-Bold',
+    fontSize: 12,
   },
-
   disabledLink: {
     opacity: 0.5,
+  },
+  loader: {
+    marginTop: 14,
   },
 });

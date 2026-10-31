@@ -53,6 +53,8 @@ import {
   useGame,
 } from '../../context/GameContext';
 import { useToast } from '../../context/ToastContext';
+import { playSfx } from '../../utils/soundEffects';
+import PartyDeciderModal from '../../components/PartyDeciderModal';
 
 
 export default function LobbyScreen({
@@ -88,6 +90,7 @@ export default function LobbyScreen({
   const [leaving, setLeaving] =
     useState(false);
 
+  const [deciderVisible, setDeciderVisible] = useState(false);
   const [enteringGame, setEnteringGame] =
     useState(false);
 
@@ -651,6 +654,7 @@ export default function LobbyScreen({
 
   const copyRoomCode = async () => {
     try {
+      playSfx('coin');
       await Clipboard.setStringAsync(room.roomCode);
       showToast('Room code copied to clipboard.');
     } catch (error) {
@@ -923,7 +927,7 @@ export default function LobbyScreen({
 
         </View>
 
-      </Screen>
+        </Screen>
     );
 
   }
@@ -1407,6 +1411,25 @@ export default function LobbyScreen({
 
         </GlassCard>
 
+        {/* PARTY LOUNGE TOOLS */}
+        <GlassCard glow="cyan" style={styles.partyLoungeCard}>
+          <View style={styles.loungeHeader}>
+            <Text style={styles.loungeEmoji}>🕹️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.loungeTitle}>PARTY LOUNGE TOOLS</Text>
+              <Text style={styles.loungeSubtitle}>Roll dice, toss a coin, or pick turns while waiting!</Text>
+            </View>
+          </View>
+          <GlassButton
+            title="PARTY TOOLS: TEAMS, BUZZER & TOSS 👥"
+            variant="cyan"
+            size="small"
+            onPress={() => {
+              playSfx('click');
+              setDeciderVisible(true);
+            }}
+          />
+        </GlassCard>
 
         {/* HOST CONTROLS */}
 
@@ -1917,12 +1940,38 @@ export default function LobbyScreen({
 
       </ScrollView>
 
+      <PartyDeciderModal visible={deciderVisible} onClose={() => setDeciderVisible(false)} />
     </Screen>
   );
 }
 
 
 const styles = StyleSheet.create({
+  partyLoungeCard: {
+    marginBottom: spacing.xl,
+    padding: 16,
+  },
+  loungeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  loungeEmoji: {
+    fontSize: 24,
+  },
+  loungeTitle: {
+    color: colors.text,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 13,
+    letterSpacing: 0.5,
+  },
+  loungeSubtitle: {
+    color: colors.textMuted,
+    fontFamily: 'Inter',
+    fontSize: 11,
+  },
+
 
   container: {
     paddingHorizontal: spacing.xl,
