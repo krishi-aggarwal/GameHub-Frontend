@@ -18,16 +18,22 @@ import PartyDeciderModal from '../../components/PartyDeciderModal';
 import ConfettiOverlay from '../../components/ConfettiOverlay';
 
 import colors from '../../theme/colors';
-import spacing from '../../theme/spacing';
 import { getGames } from '../../api/gameApi';
+import { getApiErrorMessage } from '../../api/apiUtils';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { playSfx } from '../../utils/soundEffects';
 import {
   getGamerStats,
   calculateLevel,
   getRankTitle,
-  recordRoomHosted,
+  subscribeProgression,
 } from '../../utils/gamerProgression';
+import {
+  isSocialDeductionGame,
+  matchesGameCategory,
+  supportsPassAndPlay,
+} from '../../utils/gameCatalog';
 
 const FILTER_ALL = 'ALL';
 const FILTER_DEDUCTION = 'SOCIAL_DEDUCTION';
@@ -36,9 +42,11 @@ const FILTER_LOCAL = 'LOCAL';
 
 export default function HomeScreen({ navigation }) {
   const { user, isAdmin } = useAuth();
+  const { showToast } = useToast();
 
   const [games, setGames] = useState([]);
   const [loadingGames, setLoadingGames] = useState(true);
+  const [gamesLoadError, setGamesLoadError] = useState(false);
   const [featuredGame, setFeaturedGame] = useState(null);
 
   // Search & Filter State
@@ -55,24 +63,33 @@ export default function HomeScreen({ navigation }) {
   const [gamerStats, setGamerStats] = useState(getGamerStats());
 
   useEffect(() => {
+    const unsubscribeProgression = subscribeProgression((stats) => {
+      setGamerStats({ ...stats });
+    });
     loadGamesList();
+    return unsubscribeProgression;
   }, []);
 
   async function loadGamesList() {
     try {
       setLoadingGames(true);
+      setGamesLoadError(false);
       const response = await getGames();
-      const list = Array.isArray(response) ? response : response?.data || [];
+      const list = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.data)
+          ? response.data
+          : [];
       const activeOnly = list.filter((g) => g.status === 'ACTIVE');
 
       setGames(activeOnly);
-      if (activeOnly.length > 0) {
-        setFeaturedGame(activeOnly[0]);
-      }
+      setFeaturedGame(activeOnly[0] || null);
     } catch (error) {
       console.error('Failed to load games:', error);
       setGames([]);
       setFeaturedGame(null);
+      setGamesLoadError(true);
+      showToast(getApiErrorMessage(error, 'Could not load available games.'));
     } finally {
       setLoadingGames(false);
     }
@@ -87,28 +104,23 @@ export default function HomeScreen({ navigation }) {
     return games.filter((game) => {
       const name = (game.name || '').toLowerCase();
       const desc = (game.description || '').toLowerCase();
-      const type = (game.type || '').toUpperCase();
+      const type = String(game.gameType || game.type || '').toLowerCase();
+      const slug = String(game.slug || '').toLowerCase();
       const q = search.trim().toLowerCase();
 
-      const matchesSearch = !q || name.includes(q) || desc.includes(q);
+      const matchesSearch = !q
+        || name.includes(q)
+        || desc.includes(q)
+        || type.includes(q)
+        || slug.includes(q);
       if (!matchesSearch) return false;
 
-      if (activeFilter === FILTER_DEDUCTION) {
-        return type.includes('DECEPTION') || type.includes('MAFIA') || type.includes('DEDUCTION');
-      }
-      if (activeFilter === FILTER_PARTY) {
-        return type.includes('FISHPOND') || type.includes('PARTY') || type.includes('CASUAL');
-      }
-      if (activeFilter === FILTER_LOCAL) {
-        return true; // Pass and play applies to all
-      }
-      return true;
+      return matchesGameCategory(game, activeFilter);
     });
   }, [games, search, activeFilter]);
 
   const handleOpenCreateRoom = (game) => {
     playSfx('start');
-    recordRoomHosted();
     if (game?.gameId) {
       navigation.navigate('CreateRoom', {
         gameId: game.gameId,
@@ -259,7 +271,7 @@ export default function HomeScreen({ navigation }) {
         {featuredGame && (
           <View style={styles.spotlightSection}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>GAME OF THE DAY ⭐</Text>
+              <Text style={styles.sectionTitle}>FEATURED GAME ⭐</Text>
               <Pressable onPress={() => navigation.navigate('GameCatalog')}>
                 <Text style={styles.seeAllText}>All Games ↗</Text>
               </Pressable>
@@ -268,7 +280,7 @@ export default function HomeScreen({ navigation }) {
             <GlassCard glow="purple" style={styles.featuredGameCard}>
               <View style={styles.featuredTopRow}>
                 <View style={styles.featuredBadge}>
-                  <Text style={styles.featuredBadgeText}>FEATURED SHOWDOWN</Text>
+                  <Text style={styles.featuredBadgeText}>FEATURED GAME</Text>
                 </View>
                 <Text style={styles.featuredCapacity}>
                   👥 {featuredGame.minPlayers || 4}–{featuredGame.maxPlayers || 15} Players
@@ -280,21 +292,22 @@ export default function HomeScreen({ navigation }) {
                 {featuredGame.description || 'A tense multiplayer experience of deduction and survival.'}
               </Text>
 
-              {/* Roles Spotlight Pills */}
-              <View style={styles.roleBadgesRow}>
-                <View style={[styles.roleBadge, { borderColor: colors.neonPink }]}>
-                  <Text style={[styles.roleBadgeText, { color: colors.neonPink }]}>🐺 PREDATOR</Text>
+              {isSocialDeductionGame(featuredGame) && (
+                <View style={styles.roleBadgesRow}>
+                  <View style={[styles.roleBadge, { borderColor: colors.neonPink }]}>
+                    <Text style={[styles.roleBadgeText, { color: colors.neonPink }]}>🐺 PREDATOR</Text>
+                  </View>
+                  <View style={[styles.roleBadge, { borderColor: colors.neonCyan }]}>
+                    <Text style={[styles.roleBadgeText, { color: colors.neonCyan }]}>🕵️ DETECTIVE</Text>
+                  </View>
+                  <View style={[styles.roleBadge, { borderColor: colors.neonLime }]}>
+                    <Text style={[styles.roleBadgeText, { color: colors.neonLime }]}>🩺 DOCTOR</Text>
+                  </View>
+                  <View style={[styles.roleBadge, { borderColor: colors.primary }]}>
+                    <Text style={[styles.roleBadgeText, { color: colors.primary }]}>🕊️ INNOCENT</Text>
+                  </View>
                 </View>
-                <View style={[styles.roleBadge, { borderColor: colors.neonCyan }]}>
-                  <Text style={[styles.roleBadgeText, { color: colors.neonCyan }]}>🕵️ DETECTIVE</Text>
-                </View>
-                <View style={[styles.roleBadge, { borderColor: colors.neonLime }]}>
-                  <Text style={[styles.roleBadgeText, { color: colors.neonLime }]}>🩺 DOCTOR</Text>
-                </View>
-                <View style={[styles.roleBadge, { borderColor: colors.primary }]}>
-                  <Text style={[styles.roleBadgeText, { color: colors.primary }]}>🕊️ INNOCENT</Text>
-                </View>
-              </View>
+              )}
 
               <View style={styles.featuredActionsRow}>
                 <GlassButton
@@ -303,12 +316,14 @@ export default function HomeScreen({ navigation }) {
                   onPress={() => handleOpenCreateRoom(featuredGame)}
                   style={styles.featuredActionBtn}
                 />
-                <GlassButton
-                  title="PASS & PLAY 📱"
-                  variant="secondary"
-                  onPress={() => handleOpenPassAndPlay('deception-around-us')}
-                  style={styles.featuredActionBtn}
-                />
+                {supportsPassAndPlay(featuredGame) && (
+                  <GlassButton
+                    title="PASS & PLAY 📱"
+                    variant="secondary"
+                    onPress={() => handleOpenPassAndPlay(featuredGame.slug)}
+                    style={styles.featuredActionBtn}
+                  />
+                )}
               </View>
             </GlassCard>
           </View>
@@ -326,7 +341,7 @@ export default function HomeScreen({ navigation }) {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search games, genres, roles..."
+            placeholder="Search games or genres..."
             placeholderTextColor={colors.textMuted}
             style={styles.searchInput}
           />
@@ -366,6 +381,19 @@ export default function HomeScreen({ navigation }) {
             <ActivityIndicator color={colors.primary} />
             <Text style={styles.loadingText}>Summoning games...</Text>
           </View>
+        ) : gamesLoadError ? (
+          <View style={styles.emptyGamesBox}>
+            <Text style={styles.emptyGamesEmoji}>📡</Text>
+            <Text style={styles.emptyGamesTitle}>Couldn’t load games</Text>
+            <Text style={styles.emptyGamesSubtitle}>Check your connection and try again.</Text>
+            <GlassButton
+              title="TRY AGAIN"
+              variant="secondary"
+              size="small"
+              onPress={loadGamesList}
+              style={{ marginTop: 12 }}
+            />
+          </View>
         ) : filteredGames.length > 0 ? (
           <View style={styles.gamesList}>
             {filteredGames.map((game, index) => {
@@ -392,17 +420,26 @@ export default function HomeScreen({ navigation }) {
                         <Text style={styles.gameMetaText}>👥 {game.minPlayers || 2}–{game.maxPlayers || 15}P</Text>
                       </View>
                       <View style={styles.gameMetaPill}>
-                        <Text style={styles.gameMetaText}>⚡ LIVE</Text>
+                        <Text style={styles.gameMetaText}>⚡ READY</Text>
                       </View>
                     </View>
 
                     <View style={styles.gameCardButtons}>
-                      <GlassButton
-                        title="HOST"
-                        variant="cyan"
-                        size="small"
-                        onPress={() => handleOpenCreateRoom(game)}
-                      />
+                      {activeFilter === FILTER_LOCAL ? (
+                        <GlassButton
+                          title="PLAY"
+                          variant="secondary"
+                          size="small"
+                          onPress={() => handleOpenPassAndPlay(game.slug)}
+                        />
+                      ) : (
+                        <GlassButton
+                          title="HOST"
+                          variant="cyan"
+                          size="small"
+                          onPress={() => handleOpenCreateRoom(game)}
+                        />
+                      )}
                     </View>
                   </View>
                 </GlassCard>
@@ -670,10 +707,6 @@ const styles = StyleSheet.create({
   pickerCard: {
     backgroundColor: 'rgba(168, 85, 247, 0.08)',
     borderColor: 'rgba(168, 85, 247, 0.3)',
-  },
-  passPlayCard: {
-    backgroundColor: '#122D25',
-    borderColor: '#059669',
   },
   toolboxEmoji: {
     fontSize: 26,

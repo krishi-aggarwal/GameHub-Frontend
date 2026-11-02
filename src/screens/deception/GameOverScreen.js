@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +18,8 @@ import spacing from '../../theme/spacing';
 import { useGame } from '../../context/GameContext';
 import { useAuth } from '../../context/AuthContext';
 import { getGameResult } from '../../api/deceptionApi';
+import { getApiErrorMessage } from '../../api/apiUtils';
+import { useToast } from '../../context/ToastContext';
 import { playSfx } from '../../utils/soundEffects';
 
 const ROLE_DISPLAY = {
@@ -29,28 +32,60 @@ const ROLE_DISPLAY = {
 export default function GameOverScreen({ navigation, route }) {
   const { result: routeResult } = route?.params || {};
   const { sessionId, players: contextPlayers, exitGame } = useGame();
-  const { activeRoomCode, user } = useAuth();
+  const { activeRoomCode } = useAuth();
+  const { showToast } = useToast();
 
-  const [gameResult, setGameResult] = useState(routeResult ?? null);
+  const initialResult = routeResult && typeof routeResult === 'object'
+    ? routeResult.result ?? routeResult.gameResult ?? routeResult.winner ?? null
+    : routeResult ?? null;
+  const [gameResult, setGameResult] = useState(initialResult);
+  const [resultPlayers, setResultPlayers] = useState(
+    Array.isArray(routeResult?.players) ? routeResult.players : null
+  );
+  const [loadingResult, setLoadingResult] = useState(false);
+  const [resultError, setResultError] = useState(false);
   const [confettiActive, setConfettiActive] = useState(false);
+  const resultRequestStarted = useRef(false);
 
   const players = useMemo(() => {
+    if (Array.isArray(resultPlayers)) return resultPlayers;
     return Array.isArray(contextPlayers) ? contextPlayers : [];
-  }, [contextPlayers]);
+  }, [contextPlayers, resultPlayers]);
+
+  const loadGameResult = useCallback(async () => {
+    if (!sessionId) return;
+
+    resultRequestStarted.current = true;
+    setLoadingResult(true);
+    setResultError(false);
+    try {
+      const data = await getGameResult(sessionId);
+      const res = data?.result ?? data?.gameResult ?? data?.winner ?? null;
+      if (res) setGameResult(res);
+      if (Array.isArray(data?.players)) setResultPlayers(data.players);
+    } catch (error) {
+      console.error('Failed to load final game result:', error);
+      setResultError(true);
+      showToast(getApiErrorMessage(error, 'Could not load the final game result.'));
+    } finally {
+      setLoadingResult(false);
+    }
+  }, [sessionId, showToast]);
 
   useEffect(() => {
-    if (gameResult || !sessionId) return;
-    getGameResult(sessionId)
-      .then((data) => {
-        const res = data?.result ?? data?.gameResult ?? data?.winner ?? null;
-        setGameResult(res);
-      })
-      .catch(() => {});
-  }, [sessionId, gameResult]);
+    if (
+      !sessionId
+      || (gameResult && Array.isArray(resultPlayers))
+      || resultRequestStarted.current
+    ) return;
+
+    loadGameResult();
+  }, [sessionId, gameResult, resultPlayers, loadGameResult]);
 
   const innocentsWon = gameResult === 'INNOCENTS_WIN';
 
   useEffect(() => {
+    if (!gameResult) return;
     if (innocentsWon) {
       playSfx('fanfare');
       setConfettiActive(true);
@@ -75,16 +110,36 @@ export default function GameOverScreen({ navigation, route }) {
 
       <View style={styles.mobileContainer}>
         {/* AMONG US VICTORY / DEFEAT BANNER */}
-        <View style={[styles.resultBanner, innocentsWon ? styles.bannerVictory : styles.bannerDefeat]}>
-          <Text style={styles.resultEmoji}>{innocentsWon ? '🏆' : '💀'}</Text>
-          <Text style={[styles.resultTitle, innocentsWon ? styles.titleVictory : styles.titleDefeat]}>
-            {innocentsWon ? 'VICTORY' : 'DEFEAT'}
+        <View style={[
+          styles.resultBanner,
+          !gameResult ? styles.bannerPending : innocentsWon ? styles.bannerVictory : styles.bannerDefeat,
+        ]}>
+          <Text style={styles.resultEmoji}>{!gameResult ? '⏳' : innocentsWon ? '🏆' : '💀'}</Text>
+          <Text style={[
+            styles.resultTitle,
+            !gameResult ? styles.titlePending : innocentsWon ? styles.titleVictory : styles.titleDefeat,
+          ]}>
+            {!gameResult ? 'RESULT PENDING' : innocentsWon ? 'VICTORY' : 'DEFEAT'}
           </Text>
           <Text style={styles.resultSubtitle}>
-            {innocentsWon
-              ? 'Crewmates successfully purged all Impostors from the ship!'
-              : 'The Impostors sabotaged and overwhelmed the crew.'}
+            {!gameResult
+              ? 'Revealing the final result and player roles…'
+              : innocentsWon
+                ? 'Crewmates successfully purged all Impostors from the ship!'
+                : 'The Impostors sabotaged and overwhelmed the crew.'}
           </Text>
+          {loadingResult && <ActivityIndicator color={colors.textMuted} style={styles.resultLoader} />}
+          {resultError && (
+            <Pressable
+              onPress={() => {
+                resultRequestStarted.current = false;
+                loadGameResult();
+              }}
+              style={styles.resultRetry}
+            >
+              <Text style={styles.resultRetryText}>TRY AGAIN</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* FULL ROSTER IDENTITY REVEAL */}
@@ -163,6 +218,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 16,
   },
+  bannerPending: {
+    backgroundColor: 'rgba(100, 116, 139, 0.12)',
+    borderColor: colors.borderStrong,
+  },
   resultEmoji: {
     fontSize: 48,
     marginBottom: 6,
@@ -178,6 +237,11 @@ const styles = StyleSheet.create({
   titleDefeat: {
     color: colors.amongRedBright,
   },
+  titlePending: {
+    color: colors.textMuted,
+    fontSize: 22,
+    letterSpacing: 0.5,
+  },
   resultSubtitle: {
     color: colors.textSecondary,
     fontFamily: 'Inter',
@@ -185,6 +249,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
     lineHeight: 17,
+  },
+  resultLoader: {
+    marginTop: 10,
+  },
+  resultRetry: {
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  resultRetryText: {
+    color: colors.text,
+    fontFamily: 'Inter-Bold',
+    fontSize: 11,
   },
   rosterCard: {
     flex: 1,

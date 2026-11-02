@@ -21,6 +21,11 @@ import { getGames } from '../../api/gameApi';
 import { getApiErrorMessage } from '../../api/apiUtils';
 import { useToast } from '../../context/ToastContext';
 import { playSfx } from '../../utils/soundEffects';
+import {
+  isSocialDeductionGame,
+  matchesGameCategory,
+  supportsPassAndPlay,
+} from '../../utils/gameCatalog';
 
 const CATEGORIES = [
   { id: 'ALL', label: '✦ All Games', icon: '🎮' },
@@ -62,17 +67,16 @@ export default function GameCatalogScreen({ navigation }) {
       const name = (game.name || '').toLowerCase();
       const desc = (game.description || '').toLowerCase();
       const type = (game.type || game.gameType || '').toUpperCase();
+      const slug = String(game.slug || '').toLowerCase();
 
-      const matchesQuery = !q || name.includes(q) || desc.includes(q);
+      const matchesQuery = !q
+        || name.includes(q)
+        || desc.includes(q)
+        || type.toLowerCase().includes(q)
+        || slug.includes(q);
       if (!matchesQuery) return false;
 
-      if (activeCategory === 'DEDUCTION') {
-        return type.includes('DECEPTION') || type.includes('MAFIA') || type.includes('DEDUCTION');
-      }
-      if (activeCategory === 'PARTY') {
-        return type.includes('FISHPOND') || type.includes('PARTY') || type.includes('CASUAL');
-      }
-      return true;
+      return matchesGameCategory(game, activeCategory);
     });
   }, [games, search, activeCategory]);
 
@@ -174,7 +178,7 @@ export default function GameCatalogScreen({ navigation }) {
           <View style={styles.cardsGrid}>
             {filteredGames.map((game, index) => {
               const isActive = game.status === 'ACTIVE';
-              const isDeception = (game.name || '').toLowerCase().includes('deception');
+              const isDeception = isSocialDeductionGame(game);
 
               return (
                 <GlassCard
@@ -190,7 +194,7 @@ export default function GameCatalogScreen({ navigation }) {
                       </Text>
                     </View>
                     <Text style={styles.gameCategory}>
-                      {String(game.type || 'PARTY').replace(/_/g, ' ')}
+                      {String(game.gameType || game.type || 'PARTY').replace(/_/g, ' ')}
                     </Text>
                   </View>
 
@@ -227,11 +231,11 @@ export default function GameCatalogScreen({ navigation }) {
                       onPress={() => handleCreateRoom(game)}
                       style={{ flex: 1 }}
                     />
-                    {isDeception && (
+                    {supportsPassAndPlay(game) && (
                       <GlassButton
                         title="PASS & PLAY 📱"
                         variant="secondary"
-                        onPress={() => handlePassAndPlay('deception-around-us')}
+                        onPress={() => handlePassAndPlay(game.slug)}
                         style={{ flex: 1 }}
                       />
                     )}

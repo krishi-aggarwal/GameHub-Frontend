@@ -19,6 +19,7 @@ import { createRoom } from '../../api/roomApi';
 import { getApiErrorMessage } from '../../api/apiUtils';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { recordRoomHosted } from '../../utils/gamerProgression';
 
 export default function CreateRoomScreen({
   navigation,
@@ -80,6 +81,7 @@ export default function CreateRoomScreen({
         );
       }
 
+      await recordRoomHosted();
       await setActiveRoomCode(room.roomCode);
 
       // Open the real lobby.
