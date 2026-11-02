@@ -225,6 +225,21 @@ export default function GameCatalogScreen({ navigation }) {
                   {/* Actions */}
                   <View style={styles.cardButtonsRow}>
                     <GlassButton
+                      title="HOW TO PLAY"
+                      variant="secondary"
+                      onPress={() => navigation.navigate('GameInfo', { game })}
+                      style={{ flex: 1 }}
+                    />
+                    <GlassButton
+                      title="FIND PLAYERS"
+                      variant="cyan"
+                      disabled={!isActive}
+                      onPress={() => navigation.navigate('OnlineMatchmaking', { game })}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                  <View style={styles.cardButtonsRow}>
+                    <GlassButton
                       title="CREATE ROOM 🚀"
                       variant="primary"
                       disabled={!isActive}

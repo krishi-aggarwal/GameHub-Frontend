@@ -34,7 +34,8 @@ export default function GamerProfileModal({ visible, onClose, user, onTriggerCon
     };
   }, []);
 
-  const { level, currentLevelXp, xpToNext, progressPercent } = calculateLevel(stats.xp);
+  const totalExperiencePoints = stats.xp + (stats.serverXp || 0);
+  const { level, currentLevelXp, xpToNext, progressPercent } = calculateLevel(totalExperiencePoints);
   const rankTitle = getRankTitle(level);
   const displayName = user?.displayName || user?.username || 'Player One';
 
@@ -95,7 +96,9 @@ export default function GamerProfileModal({ visible, onClose, user, onTriggerCon
             <View style={styles.progressionCard}>
               <View style={styles.xpHeader}>
                 <Text style={styles.levelLabel}>LEVEL {level}</Text>
-                <Text style={styles.xpCount}>{currentLevelXp} / 250 XP ({xpToNext} to next)</Text>
+                <Text style={styles.xpCount}>
+                  {currentLevelXp} / 250 XP · {totalExperiencePoints} total ({xpToNext} to next)
+                </Text>
               </View>
               <View style={styles.xpTrack}>
                 <View style={[styles.xpFill, { width: `${progressPercent}%` }]} />

@@ -18,6 +18,8 @@ import {
 // GAMEHUB
 
 import GameCatalogScreen from '../screens/games/GameCatalogScreen';
+import GameInfoScreen from '../screens/games/GameInfoScreen';
+import RecentGamesScreen from '../screens/games/RecentGamesScreen';
 import FishpondScreen from '../screens/games/FishpondScreen';
 import PassAndPlayScreen from '../screens/games/PassAndPlayScreen';
 import TutorialScreen from '../screens/tutorial/TutorialScreen';
@@ -26,6 +28,7 @@ import TutorialScreen from '../screens/tutorial/TutorialScreen';
 import CreateRoomScreen from '../screens/room/CreateRoomScreen';
 import JoinRoomScreen from '../screens/room/JoinRoomScreen';
 import LobbyScreen from '../screens/room/LobbyScreen';
+import OnlineMatchmakingScreen from '../screens/room/OnlineMatchmakingScreen';
 
 // DECEPTION AROUND US
 import NightScreen from '../screens/deception/NightScreen';
@@ -107,6 +110,21 @@ export default function AppNavigator() {
         <Stack.Screen
           name="GameCatalog"
           component={GameCatalogScreen}
+        />
+
+        <Stack.Screen
+          name="GameInfo"
+          component={GameInfoScreen}
+        />
+
+        <Stack.Screen
+          name="RecentGames"
+          component={RecentGamesScreen}
+        />
+
+        <Stack.Screen
+          name="OnlineMatchmaking"
+          component={OnlineMatchmakingScreen}
         />
 
         <Stack.Screen

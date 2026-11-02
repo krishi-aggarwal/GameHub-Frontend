@@ -23,17 +23,22 @@ const sections = [
       {
         heading: 'What is GameHub?',
         text:
-          'GameHub is an interactive multiplayer gaming platform where players can discover games, create rooms, invite friends, use party tools (dice & coin flip), and play together in real time.',
+          'GameHub is a social party-game hub. Discover games, read their rules, meet other players in public rooms, host private rooms for friends, or play locally by passing one device around.',
       },
       {
-        heading: 'How it works',
+        heading: 'Online, private, and local play',
         text:
-          'Choose a game from the catalog, create a room, or join an existing room using its room code. Once everyone is ready in the lobby, the host kicks off the match.',
+          'Find Online Players searches open rooms for the selected game; join one to play with its host and other players. Create Room opens a new room that appears in the public list and can also be joined with its room code. Pass & Play is an offline, same-device mode for supported games.',
+      },
+      {
+        heading: 'Progress and match history',
+        text:
+          'Online Deception and Fishpond matches record key milestones, player outcomes, and performance XP. Recent Games shows saved match summaries. Local matches sync a summary when the device can reach the server.',
       },
       {
         heading: 'Party Toolbox',
         text:
-          'Need to decide who goes first or settle a quick bet? Use the party dice roller (d6 & d20) and coin flipper right from the Home Screen or Lobby.',
+          'Use team division, a buzzer, coin toss, and turn picker for game-night decisions.',
       },
     ],
   },
@@ -58,7 +63,7 @@ const sections = [
       {
         heading: 'Night & Day Cycle',
         text:
-          'During the Night phase, special roles take their turns in secret. In the Day phase, the room reconvenes to discuss who died, review suspicions, and vote.',
+          'During the Night phase, living Predators choose a target. If present, the Doctor protects one player and the Detective investigates one player. In the Day phase, everyone discusses the result; the host starts a vote.',
       },
       {
         heading: 'Voting & Elimination',
@@ -71,9 +76,14 @@ const sections = [
     title: 'Fishpond Game',
     content: [
       {
-        heading: 'Compassionate Party Messages',
+        heading: 'Objective and setup',
         text:
-          'Fishpond is a heartwarming anonymous message-sharing game. Everyone in the pond drops a kind note or secret compliment into the pond, and then the room reads them together!',
+          'Fishpond is a relaxed anonymous message and guessing game for 3–12 online players. Create or join a room; each player submits one message of up to 280 characters. Keep messages friendly and suitable for the group.',
+      },
+      {
+        heading: 'Read, discuss, and reveal',
+        text:
+          'After everyone submits, messages are shuffled and shown one at a time. The host moves through the list while players discuss and guess each author. At the final message, the host reveals the authors to end the round. Online chat is available; messages and chat are not included in the saved match milestones.',
       },
     ],
   },

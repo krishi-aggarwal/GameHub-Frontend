@@ -5,6 +5,7 @@ const PROGRESSION_STORAGE_KEY = 'gamehub_gamer_progression';
 
 const INITIAL_STATE = {
   xp: 140,
+  serverXp: 0,
   streak: 3,
   lastLoginDate: new Date().toISOString().slice(0, 10),
   dailyClaimed: false,
@@ -123,6 +124,13 @@ loadGamerProgression();
 
 export function getGamerStats() {
   return cachedState;
+}
+
+export async function syncServerExperiencePoints(experiencePoints) {
+  const parsedXp = Number(experiencePoints);
+  if (!Number.isFinite(parsedXp) || parsedXp < 0) return;
+  cachedState.serverXp = Math.floor(parsedXp);
+  await persist();
 }
 
 export function subscribeProgression(callback) {

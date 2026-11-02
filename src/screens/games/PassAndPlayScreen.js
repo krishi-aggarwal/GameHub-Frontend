@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   Pressable,
@@ -18,6 +18,8 @@ import colors from '../../theme/colors';
 import spacing from '../../theme/spacing';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { getApiErrorMessage } from '../../api/apiUtils';
+import { saveOfflineMatch } from '../../api/matchApi';
 
 const MAX_PLAYERS = 15;
 
@@ -46,12 +48,20 @@ function getWinner(players) {
   return null;
 }
 
+function createMatchId() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    return (character === 'x' ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
 export default function PassAndPlayScreen({ navigation, route }) {
   const gameSlug = route?.params?.gameSlug || 'deception-around-us';
   const isFishpond = gameSlug === 'fishpond';
   const minPlayers = isFishpond ? 3 : 4;
+  const maxPlayers = isFishpond ? 12 : MAX_PLAYERS;
   const storageKey = `gamehub_passplay_${gameSlug}`;
-  const { setActivePassPlay } = useAuth();
+  const { setActivePassPlay, user } = useAuth();
   const { showToast } = useToast();
 
   const [hydrated, setHydrated] = useState(false);
@@ -63,6 +73,10 @@ export default function PassAndPlayScreen({ navigation, route }) {
   const [chatDraft, setChatDraft] = useState('');
   const [fishpondTurnReady, setFishpondTurnReady] = useState(false);
   const [hostControlsReady, setHostControlsReady] = useState(false);
+  const [hostDisplayName, setHostDisplayName] = useState(user?.displayName || user?.username || '');
+  const [historySyncing, setHistorySyncing] = useState(false);
+  const [historySyncError, setHistorySyncError] = useState('');
+  const syncInProgress = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -70,8 +84,21 @@ export default function PassAndPlayScreen({ navigation, route }) {
       .then((stored) => {
         if (active && stored) {
           const restored = JSON.parse(stored);
+          const accountNames = [user?.displayName, user?.username]
+            .filter(Boolean)
+            .map((name) => name.toLowerCase());
+          const matchingHost = restored.players?.find((player) => (
+            accountNames.includes(player.name.toLowerCase())
+          ));
           setGame({
             ...restored,
+            matchSessionId: restored.matchSessionId || createMatchId(),
+            hostDisplayName: restored.hostDisplayName || matchingHost?.name || '',
+            historySynced: Boolean(restored.historySynced),
+            events: restored.events || [
+              'GAME_STARTED',
+              isFishpond ? 'FISHPOND_STARTED' : 'NIGHT_STARTED',
+            ],
             revealed: false,
             investigation: restored.investigation
               ? { ...restored.investigation, visible: false }
@@ -84,7 +111,7 @@ export default function PassAndPlayScreen({ navigation, route }) {
         if (active) setHydrated(true);
       });
     return () => { active = false; };
-  }, [showToast, storageKey]);
+  }, [isFishpond, showToast, storageKey, user?.displayName, user?.username]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -108,6 +135,57 @@ export default function PassAndPlayScreen({ navigation, route }) {
     [players]
   );
 
+  const syncOfflineHistory = useCallback(async (completedGame) => {
+    if (!completedGame || completedGame.historySynced || syncInProgress.current) return;
+    syncInProgress.current = true;
+    setHistorySyncing(true);
+    setHistorySyncError('');
+    try {
+      const request = {
+        sessionId: completedGame.matchSessionId,
+        gameSlug,
+        hostDisplayName: completedGame.hostDisplayName,
+        result: isFishpond ? 'AUTHORS_REVEALED' : completedGame.winner,
+        rounds: isFishpond ? 1 : Math.max(1, completedGame.round),
+        players: completedGame.players.map((player) => ({
+          displayName: player.name,
+          role: player.role || null,
+          outcome: isFishpond
+            ? (player.submitted ? 'SUBMITTED' : 'DID_NOT_SUBMIT')
+            : ((completedGame.winner === 'PREDATORS_WIN') === (player.role === 'PREDATOR')
+              ? 'WIN'
+              : 'LOSS'),
+          submitted: Boolean(player.submitted),
+        })),
+        events: (completedGame.events || []).slice(-60),
+      };
+      const savedMatch = await saveOfflineMatch(request);
+      setGame((current) => current && current.matchSessionId === completedGame.matchSessionId
+        ? { ...current, historySynced: true }
+        : current);
+      const expectedXp = isFishpond
+        ? 35
+        : (completedGame.winner === 'PREDATORS_WIN'
+          ? 25
+          : 10);
+      showToast(savedMatch.xpEarned < expectedXp
+        ? `Match saved. Offline XP limit applied; earned ${savedMatch.xpEarned} XP.`
+        : `Match saved to Recent Games. Earned ${savedMatch.xpEarned} XP.`);
+    } catch (error) {
+      console.error('Could not save local match history:', error);
+      setHistorySyncError(getApiErrorMessage(error, 'Could not save this match. Check your connection and retry.'));
+    } finally {
+      syncInProgress.current = false;
+      setHistorySyncing(false);
+    }
+  }, [gameSlug, isFishpond, showToast]);
+
+  useEffect(() => {
+    if (game?.stage === 'GAME_OVER' || game?.stage === 'FISHPOND_COMPLETE') {
+      syncOfflineHistory(game);
+    }
+  }, [game?.stage, game?.historySynced, syncOfflineHistory]);
+
   function startLocalGame() {
     const names = namesText
       .split(/\r?\n/)
@@ -118,12 +196,16 @@ export default function PassAndPlayScreen({ navigation, route }) {
       showToast(`${isFishpond ? 'Fishpond' : 'Deception'} needs at least ${minPlayers} players.`);
       return;
     }
-    if (names.length > MAX_PLAYERS) {
-      showToast(`Pass and play supports up to ${MAX_PLAYERS} players.`);
+    if (names.length > maxPlayers) {
+      showToast(`Pass and play supports up to ${maxPlayers} players.`);
       return;
     }
     if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) {
       showToast('Use a different name for each player.');
+      return;
+    }
+    if (!names.some((name) => name.toLowerCase() === hostDisplayName.trim().toLowerCase())) {
+      showToast('Add your player name to the list to earn XP and save this match.');
       return;
     }
 
@@ -132,11 +214,17 @@ export default function PassAndPlayScreen({ navigation, route }) {
       name,
       alive: true,
       left: false,
+      submitted: false,
     }));
+    const matchSessionId = createMatchId();
 
     if (isFishpond) {
       setGame({
         gameSlug,
+        matchSessionId,
+        hostDisplayName: hostDisplayName.trim(),
+        historySynced: false,
+        events: ['GAME_STARTED', 'FISHPOND_STARTED'],
         stage: 'FISHPOND_SUBMIT',
         players: roster,
         submissions: [],
@@ -157,6 +245,10 @@ export default function PassAndPlayScreen({ navigation, route }) {
       while (roles.length < names.length) roles.push('INNOCENT');
       setGame({
         gameSlug,
+        matchSessionId,
+        hostDisplayName: hostDisplayName.trim(),
+        historySynced: false,
+        events: ['GAME_STARTED', 'NIGHT_STARTED'],
         stage: 'NIGHT',
         players: shuffled(roster.map((player, index) => ({
           ...player,
@@ -202,7 +294,7 @@ export default function PassAndPlayScreen({ navigation, route }) {
     ));
     const winner = getWinner(nextPlayers);
 
-    setGame({
+    const nextGame = {
       ...currentGame,
       players: nextPlayers,
       stage: winner
@@ -224,7 +316,14 @@ export default function PassAndPlayScreen({ navigation, route }) {
       turnIndex: 0,
       revealed: false,
       votes: {},
-    });
+      events: [
+        ...currentGame.events,
+        'NIGHT_RESOLVED',
+        ...(predatorTarget && predatorTarget !== protection ? ['PLAYER_ELIMINATED'] : []),
+        ...(winner ? ['GAME_OVER'] : ['DAY_STARTED']),
+      ],
+    };
+    setGame(nextGame);
   }
 
   function revealCurrentTurn() {
@@ -274,6 +373,12 @@ export default function PassAndPlayScreen({ navigation, route }) {
       investigation: currentGame.investigation
         ? { ...currentGame.investigation, visible: false }
         : null,
+      events: [
+        ...currentGame.events,
+        'VOTING_RESOLVED',
+        ...(eliminatedId ? ['PLAYER_ELIMINATED'] : []),
+        ...(winner ? ['GAME_OVER'] : ['NIGHT_STARTED']),
+      ],
     });
   }
 
@@ -318,6 +423,8 @@ export default function PassAndPlayScreen({ navigation, route }) {
       setGame({
         ...game,
         stage: 'FISHPOND_READING',
+        events: [...game.events, 'MESSAGE_SUBMITTED', 'SUBMISSIONS_COMPLETE'],
+        players: game.players.map((player) => ({ ...player, submitted: true })),
         submissions,
         messages: shuffled(submissions),
         currentSubmitIndex: submissions.length,
@@ -327,6 +434,10 @@ export default function PassAndPlayScreen({ navigation, route }) {
     } else {
       setGame({
         ...game,
+        events: [...game.events, 'MESSAGE_SUBMITTED'],
+        players: game.players.map((player) => player.id === currentPlayer.id
+          ? { ...player, submitted: true }
+          : player),
         submissions,
         currentSubmitIndex: game.currentSubmitIndex + 1,
       });
@@ -335,16 +446,35 @@ export default function PassAndPlayScreen({ navigation, route }) {
   }
 
   function exitLocalGame() {
-    setGame(null);
+    const hasPendingCompletedMatch = game
+      && ['GAME_OVER', 'FISHPOND_COMPLETE'].includes(game.stage)
+      && !game.historySynced;
+    if (!hasPendingCompletedMatch) setGame(null);
     setActivePassPlay(null);
     navigation.replace('GameCatalog');
   }
 
   function startAnotherLocalGame() {
+    if (game && !game.historySynced) {
+      showToast('Save this match before starting another one.');
+      return;
+    }
     setGame(null);
     setNamesText('');
     setMessageDraft('');
     setChatDraft('');
+  }
+
+  function finishFishpondReveal() {
+    const completedGame = {
+      ...game,
+      stage: 'FISHPOND_COMPLETE',
+      authorsRevealed: true,
+      events: [...game.events, 'AUTHORS_REVEALED', 'GAME_OVER'],
+      players: game.players.map((player) => ({ ...player, submitted: true })),
+    };
+    setGame(completedGame);
+    syncOfflineHistory(completedGame);
   }
 
   if (!hydrated) {
@@ -376,6 +506,17 @@ export default function PassAndPlayScreen({ navigation, route }) {
               placeholderTextColor={colors.textMuted}
               style={styles.namesInput}
             />
+            <Text style={styles.body}>
+              Your logged-in player name must be included in the list. That player receives this device owner&apos;s XP.
+            </Text>
+            <TextInput
+              value={hostDisplayName}
+              onChangeText={setHostDisplayName}
+              maxLength={80}
+              placeholder="Your player name"
+              placeholderTextColor={colors.textMuted}
+              style={styles.hostNameInput}
+            />
             {!isFishpond && (
               <>
                 <Text style={styles.sectionTitle}>OPTIONAL ROLES</Text>
@@ -402,6 +543,58 @@ export default function PassAndPlayScreen({ navigation, route }) {
   }
 
   if (isFishpond) {
+    if (game.stage === 'FISHPOND_COMPLETE') {
+      return (
+        <Screen>
+          <ScrollView contentContainerStyle={styles.container}>
+            <Text style={styles.eyebrow}>PASS & PLAY · FISHPOND</Text>
+            <Text style={styles.title}>Authors revealed</Text>
+            <GlassCard style={styles.panel}>
+              <Text style={styles.sectionTitle}>MATCH COMPLETE</Text>
+              {game.messages.map((message) => (
+                <View key={message.id} style={styles.resultRow}>
+                  <Text style={[styles.body, styles.listText]}>{message.message}</Text>
+                  <Text style={styles.authorName}>{message.authorName}</Text>
+                </View>
+              ))}
+              <Text style={styles.historyStatus}>
+                {historySyncing ? 'Saving match…' : game.historySynced
+                  ? 'Saved to Recent Games'
+                  : historySyncError || 'Match not saved yet'}
+              </Text>
+              {!game.historySynced && Boolean(historySyncError || !game.hostDisplayName) && (
+                <TextInput
+                  value={game.hostDisplayName || hostDisplayName}
+                  onChangeText={(value) => {
+                    setHostDisplayName(value);
+                    setGame((current) => ({ ...current, hostDisplayName: value }));
+                  }}
+                  maxLength={80}
+                  placeholder="Your player name from this match"
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.hostNameInput}
+                />
+              )}
+              {!game.historySynced && (
+                <GlassButton
+                  title={historySyncing ? 'SAVING…' : 'RETRY SAVING MATCH'}
+                  variant="secondary"
+                  disabled={historySyncing}
+                  onPress={() => syncOfflineHistory(game)}
+                />
+              )}
+            </GlassCard>
+            <GlassButton
+              title="PLAY ANOTHER ROUND"
+              onPress={startAnotherLocalGame}
+              disabled={!game.historySynced}
+            />
+            <GlassButton title="BACK TO GAME LIBRARY" variant="secondary" onPress={exitLocalGame} />
+          </ScrollView>
+        </Screen>
+      );
+    }
+
     const currentSubmissionPlayer = players[game.currentSubmitIndex];
     const currentMessage = game.messages[game.messageIndex];
     return (
@@ -476,8 +669,8 @@ export default function PassAndPlayScreen({ navigation, route }) {
                 />
                 {game.messageIndex === game.messages.length - 1 ? (
                   <GlassButton
-                    title={game.authorsRevealed ? 'HIDE AUTHORS' : 'REVEAL AUTHORS'}
-                    onPress={() => setGame({ ...game, authorsRevealed: !game.authorsRevealed })}
+                    title="REVEAL AUTHORS & FINISH"
+                    onPress={finishFishpondReveal}
                   />
                 ) : (
                   <GlassButton
@@ -530,7 +723,40 @@ export default function PassAndPlayScreen({ navigation, route }) {
               </View>
             ))}
           </GlassCard>
-          <GlassButton title="PLAY ANOTHER ROUND" onPress={startAnotherLocalGame} />
+          <GlassCard style={styles.panel}>
+            <Text style={styles.sectionTitle}>MATCH HISTORY</Text>
+            <Text style={styles.historyStatus}>
+              {historySyncing ? 'Saving match…' : game.historySynced
+                ? 'Saved to Recent Games'
+                : historySyncError || 'Match not saved yet'}
+            </Text>
+            {!game.historySynced && Boolean(historySyncError || !game.hostDisplayName) && (
+              <TextInput
+                value={game.hostDisplayName || hostDisplayName}
+                onChangeText={(value) => {
+                  setHostDisplayName(value);
+                  setGame((current) => ({ ...current, hostDisplayName: value }));
+                }}
+                maxLength={80}
+                placeholder="Your player name from this match"
+                placeholderTextColor={colors.textMuted}
+                style={styles.hostNameInput}
+              />
+            )}
+            {!game.historySynced && (
+              <GlassButton
+                title={historySyncing ? 'SAVING…' : 'RETRY SAVING MATCH'}
+                variant="secondary"
+                disabled={historySyncing}
+                onPress={() => syncOfflineHistory(game)}
+              />
+            )}
+          </GlassCard>
+          <GlassButton
+            title="PLAY ANOTHER ROUND"
+            onPress={startAnotherLocalGame}
+            disabled={!game.historySynced}
+          />
           <GlassButton title="BACK TO GAME LIBRARY" variant="secondary" onPress={exitLocalGame} />
         </ScrollView>
       </Screen>
@@ -798,6 +1024,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlignVertical: 'top',
   },
+  hostNameInput: {
+    color: colors.text,
+    fontFamily: 'Inter',
+    fontSize: 14,
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+  },
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -877,6 +1114,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
     marginBottom: spacing.md,
+  },
+  historyStatus: {
+    color: colors.textSecondary,
+    fontFamily: 'Inter',
+    fontSize: 12,
+    lineHeight: 18,
   },
   row: {
     flexDirection: 'row',

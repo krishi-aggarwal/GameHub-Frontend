@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -20,6 +20,7 @@ import ConfettiOverlay from '../../components/ConfettiOverlay';
 import colors from '../../theme/colors';
 import { getGames } from '../../api/gameApi';
 import { getApiErrorMessage } from '../../api/apiUtils';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { playSfx } from '../../utils/soundEffects';
@@ -28,7 +29,9 @@ import {
   calculateLevel,
   getRankTitle,
   subscribeProgression,
+  syncServerExperiencePoints,
 } from '../../utils/gamerProgression';
+import { getCurrentUserProfile } from '../../api/userApi';
 import {
   isSocialDeductionGame,
   matchesGameCategory,
@@ -70,6 +73,16 @@ export default function HomeScreen({ navigation }) {
     return unsubscribeProgression;
   }, []);
 
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    getCurrentUserProfile()
+      .then((profile) => {
+        if (active) return syncServerExperiencePoints(profile?.experiencePoints);
+      })
+      .catch((error) => console.error('Failed to sync player XP:', error));
+    return () => { active = false; };
+  }, []));
+
   async function loadGamesList() {
     try {
       setLoadingGames(true);
@@ -96,7 +109,9 @@ export default function HomeScreen({ navigation }) {
   }
 
   const displayName = user?.displayName || user?.username || 'Player';
-  const { level, progressPercent, currentLevelXp } = calculateLevel(gamerStats.xp);
+  const { level, progressPercent, currentLevelXp } = calculateLevel(
+    gamerStats.xp + (gamerStats.serverXp || 0)
+  );
   const rankTitle = getRankTitle(level);
 
   // Filtered games
@@ -129,11 +144,6 @@ export default function HomeScreen({ navigation }) {
     } else {
       navigation.navigate('GameCatalog');
     }
-  };
-
-  const handleOpenJoinRoom = () => {
-    playSfx('click');
-    navigation.navigate('JoinRoom');
   };
 
   const handleOpenPassAndPlay = (slug = 'deception-around-us') => {
@@ -199,17 +209,17 @@ export default function HomeScreen({ navigation }) {
             {/* Hero Quick CTA */}
             <View style={styles.heroButtonsRow}>
               <GlassButton
-                title="HOST A ROOM 🚀"
+                title="FIND ONLINE PLAYERS"
                 variant="primary"
                 size="medium"
-                onPress={() => handleOpenCreateRoom(featuredGame)}
+                onPress={() => navigation.navigate('OnlineMatchmaking', { game: featuredGame || undefined })}
                 style={styles.heroMainBtn}
               />
               <GlassButton
-                title="ENTER CODE 🎟️"
+                title="RECENT GAMES"
                 variant="secondary"
                 size="medium"
-                onPress={handleOpenJoinRoom}
+                onPress={() => navigation.navigate('RecentGames')}
                 style={styles.heroSecBtn}
               />
             </View>
@@ -476,18 +486,23 @@ export default function HomeScreen({ navigation }) {
           </Pressable>
         )}
 
-        {/* COMMUNITY & LORE GUIDE */}
-        <Pressable
-          onPress={() => navigation.navigate('Tutorial')}
-          style={styles.guideCard}
-        >
-          <Text style={styles.guideIcon}>📜</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.guideTitle}>GameHub Rules & Strategies</Text>
-            <Text style={styles.guideDesc}>Learn how to master Deception, bluff as Predator, and host rooms</Text>
+        <View style={styles.aboutCard}>
+          <Text style={styles.guideIcon}>🎮</Text>
+          <View style={styles.aboutContent}>
+            <Text style={styles.guideTitle}>What is GameHub?</Text>
+            <Text style={styles.guideDesc}>
+              A place to discover party games, meet players in public online rooms, host private matches, or play together on one device.
+            </Text>
+            <View style={styles.aboutActions}>
+              <Pressable onPress={() => navigation.navigate('Tutorial')}>
+                <Text style={styles.guideArrow}>HOW GAMEHUB WORKS ↗</Text>
+              </Pressable>
+              <Pressable onPress={() => navigation.navigate('GameCatalog')}>
+                <Text style={styles.guideArrow}>BROWSE GAME GUIDES ↗</Text>
+              </Pressable>
+            </View>
           </View>
-          <Text style={styles.guideArrow}>↗</Text>
-        </Pressable>
+        </View>
 
         <Text style={styles.footerNote}>GAMEHUB · MULTIPLAYER ARENA ✦ READY PLAYER ONE</Text>
       </ScrollView>
@@ -987,17 +1002,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  /* GUIDE CARD */
-  guideCard: {
+  aboutCard: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: colors.surfaceCard,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 16,
-    padding: 14,
+    padding: 16,
     gap: 12,
     marginBottom: 20,
+  },
+  aboutContent: {
+    flex: 1,
   },
   guideIcon: {
     fontSize: 22,
@@ -1010,12 +1027,19 @@ const styles = StyleSheet.create({
   guideDesc: {
     color: colors.textMuted,
     fontFamily: 'Inter',
-    fontSize: 10,
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  aboutActions: {
+    gap: 8,
+    marginTop: 12,
   },
   guideArrow: {
     color: colors.neonLime,
-    fontSize: 14,
-    fontWeight: '700',
+    fontFamily: 'Inter-Bold',
+    fontSize: 10,
+    letterSpacing: 0.3,
   },
 
   footerNote: {
