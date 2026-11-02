@@ -10,7 +10,7 @@ import {
   subscribeProgression,
 } from '../utils/gamerProgression';
 
-export default function GamerHudHeader({ user, onOpenProfile, onOpenDecider }) {
+export default function GamerHudHeader({ user, onOpenProfile, onOpenDecider, compact = false }) {
   const [stats, setStats] = useState(getGamerStats());
   const [soundOn, setSoundOn] = useState(isSoundEnabled());
 
@@ -32,7 +32,7 @@ export default function GamerHudHeader({ user, onOpenProfile, onOpenDecider }) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, compact && styles.compactContainer]}>
       <Logo size="medium" />
 
       <View style={styles.rightGroup}>
@@ -86,6 +86,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 18,
     paddingTop: 4,
+  },
+  compactContainer: {
+    marginBottom: 0,
+    paddingTop: 0,
   },
   rightGroup: {
     flexDirection: 'row',

@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   View,
   TextInput,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 
 import Screen from '../../components/Screen';
@@ -46,6 +48,8 @@ const FILTER_LOCAL = 'LOCAL';
 export default function HomeScreen({ navigation }) {
   const { user, isAdmin } = useAuth();
   const { showToast } = useToast();
+  const { width, height } = useWindowDimensions();
+  const isCompactMobile = Platform.OS !== 'web' || width <= 768;
 
   const [games, setGames] = useState([]);
   const [loadingGames, setLoadingGames] = useState(true);
@@ -165,10 +169,156 @@ export default function HomeScreen({ navigation }) {
     <Screen>
       <ConfettiOverlay active={confettiActive} onFinished={() => setConfettiActive(false)} />
 
-      <ScrollView
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-      >
+      {isCompactMobile ? (
+        <View style={[styles.mobileContainer, height < 650 && styles.mobileContainerShort]}>
+          <GamerHudHeader
+            user={user}
+            compact
+            onOpenProfile={() => setProfileModalVisible(true)}
+            onOpenDecider={() => openDecider('dice')}
+          />
+
+          <View style={styles.mobileHero}>
+            <View style={styles.heroKickerRow}>
+              <View style={styles.livePulseDot} />
+              <Text style={styles.heroKicker}>MULTIPLAYER ARENA ONLINE</Text>
+            </View>
+            <Text numberOfLines={1} style={styles.mobileHeroTitle}>
+              Welcome, <Text style={styles.heroTitleHighlight}>{displayName}</Text>
+            </Text>
+            <Pressable
+              onPress={() => setProfileModalVisible(true)}
+              style={styles.mobileXpRow}
+            >
+              <Text numberOfLines={1} style={styles.heroXpLabel}>{rankTitle} · LVL {level}</Text>
+              <Text style={styles.heroXpVal}>{currentLevelXp}/250 XP</Text>
+            </Pressable>
+            <View style={styles.mobileHeroButtons}>
+              <GlassButton
+                title="FIND PLAYERS"
+                variant="primary"
+                onPress={() => navigation.navigate('OnlineMatchmaking', { game: featuredGame || undefined })}
+                style={styles.mobileButton}
+                textStyle={styles.mobileButtonText}
+              />
+              <GlassButton
+                title="RECENT GAMES"
+                variant="secondary"
+                onPress={() => navigation.navigate('RecentGames')}
+                style={styles.mobileButton}
+                textStyle={styles.mobileButtonText}
+              />
+            </View>
+          </View>
+
+          <View style={styles.mobileToolbox}>
+            <Text style={styles.mobileSectionTitle}>PARTY TOOLS</Text>
+            <View style={styles.mobileToolButtons}>
+              {[
+                { label: 'Teams', emoji: '👥', tab: 'teams', style: styles.teamsCard },
+                { label: 'Buzzer', emoji: '🚨', tab: 'buzzer', style: styles.buzzerCard },
+                { label: 'Coin toss', emoji: '🪙', tab: 'coin', style: styles.coinCard },
+                { label: 'Turn picker', emoji: '🎯', tab: 'picker', style: styles.pickerCard },
+              ].map((tool) => (
+                <Pressable
+                  key={tool.tab}
+                  onPress={() => openDecider(tool.tab)}
+                  style={({ pressed }) => [
+                    styles.mobileToolButton,
+                    tool.style,
+                    pressed && styles.cardPressed,
+                  ]}
+                >
+                  <Text style={styles.mobileToolEmoji}>{tool.emoji}</Text>
+                  <Text numberOfLines={1} style={styles.mobileToolLabel}>{tool.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.mobileSpotlight}>
+            <View style={styles.mobileSectionHeading}>
+              <Text style={styles.mobileSectionTitle}>FEATURED GAME</Text>
+              <Text style={styles.sectionMeta}>
+                {loadingGames ? 'LOADING' : `${games.length} GAMES`}
+              </Text>
+            </View>
+            {featuredGame ? (
+              <GlassCard glow="purple" style={styles.mobileFeaturedCard}>
+                <View style={styles.mobileFeaturedInfo}>
+                  <Text numberOfLines={1} style={styles.mobileFeaturedName}>{featuredGame.name}</Text>
+                  <Text numberOfLines={1} style={styles.mobileFeaturedMeta}>
+                    👥 {featuredGame.minPlayers || 4}–{featuredGame.maxPlayers || 15} players
+                  </Text>
+                  <Text numberOfLines={1} style={styles.mobileFeaturedDescription}>
+                    {featuredGame.description || 'A multiplayer experience of deduction and survival.'}
+                  </Text>
+                </View>
+                <View style={styles.mobileFeaturedActions}>
+                  <GlassButton
+                    title="HOST"
+                    variant="primary"
+                    size="small"
+                    onPress={() => handleOpenCreateRoom(featuredGame)}
+                    style={styles.mobileButton}
+                    textStyle={styles.mobileButtonText}
+                  />
+                  {supportsPassAndPlay(featuredGame) && (
+                    <GlassButton
+                      title="PASS & PLAY"
+                      variant="secondary"
+                      size="small"
+                      onPress={() => handleOpenPassAndPlay(featuredGame.slug)}
+                      style={styles.mobileButton}
+                      textStyle={styles.mobileButtonText}
+                    />
+                  )}
+                </View>
+              </GlassCard>
+            ) : (
+              <View style={styles.mobileEmptyFeatured}>
+                {loadingGames ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <>
+                    <Text style={styles.mobileFeaturedMeta}>
+                      {gamesLoadError ? 'Games are unavailable right now.' : 'No games are available yet.'}
+                    </Text>
+                    {gamesLoadError && (
+                      <Pressable onPress={loadGamesList}>
+                        <Text style={styles.mobileRetryText}>TRY AGAIN</Text>
+                      </Pressable>
+                    )}
+                  </>
+                )}
+              </View>
+            )}
+          </View>
+
+          <GlassButton
+            title={loadingGames ? 'BROWSE GAME CATALOG' : `BROWSE ALL ${games.length} GAMES`}
+            variant="cyan"
+            onPress={() => navigation.navigate('GameCatalog')}
+            style={styles.mobileCatalogButton}
+            textStyle={styles.mobileButtonText}
+          />
+
+          <View style={styles.mobileLinks}>
+            <Pressable onPress={() => navigation.navigate('Tutorial')}>
+              <Text style={styles.mobileLinkText}>HOW IT WORKS ↗</Text>
+            </Pressable>
+            {isAdmin && (
+              <Pressable onPress={() => navigation.navigate('AdminGames')}>
+                <Text style={styles.mobileLinkText}>ADMIN STUDIO ↗</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+        >
         {/* GAMER HUD HEADER */}
         <GamerHudHeader
           user={user}
@@ -505,7 +655,8 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         <Text style={styles.footerNote}>GAMEHUB · MULTIPLAYER ARENA ✦ READY PLAYER ONE</Text>
-      </ScrollView>
+        </ScrollView>
+      )}
 
       {/* GAMER PROFILE PASSPORT MODAL */}
       <GamerProfileModal
@@ -526,6 +677,148 @@ export default function HomeScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  mobileContainer: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  mobileContainerShort: {
+    paddingVertical: 4,
+  },
+  mobileHero: {
+    backgroundColor: '#1E1B4B',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#4338CA',
+    padding: 12,
+  },
+  mobileHeroTitle: {
+    color: colors.text,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 19,
+    marginBottom: 5,
+  },
+  mobileXpRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  mobileHeroButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mobileButton: {
+    flex: 1,
+    minHeight: 40,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+  },
+  mobileButtonText: {
+    fontSize: 10,
+    letterSpacing: 0.2,
+  },
+  mobileToolbox: {
+    gap: 6,
+  },
+  mobileSectionTitle: {
+    color: colors.text,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  mobileToolButtons: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  mobileToolButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 56,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 2,
+  },
+  mobileToolEmoji: {
+    fontSize: 18,
+  },
+  mobileToolLabel: {
+    color: colors.text,
+    fontFamily: 'Inter-Bold',
+    fontSize: 9,
+  },
+  mobileSpotlight: {
+    gap: 6,
+  },
+  mobileSectionHeading: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  mobileFeaturedCard: {
+    padding: 12,
+    gap: 8,
+  },
+  mobileFeaturedInfo: {
+    gap: 2,
+  },
+  mobileFeaturedName: {
+    color: colors.text,
+    fontFamily: 'Inter-ExtraBold',
+    fontSize: 16,
+  },
+  mobileFeaturedMeta: {
+    color: colors.textMuted,
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+  },
+  mobileFeaturedDescription: {
+    color: colors.textSecondary,
+    fontFamily: 'Inter',
+    fontSize: 10,
+  },
+  mobileFeaturedActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mobileEmptyFeatured: {
+    minHeight: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 10,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+  },
+  mobileRetryText: {
+    color: colors.neonCyan,
+    fontFamily: 'Inter-Bold',
+    fontSize: 10,
+  },
+  mobileCatalogButton: {
+    minHeight: 44,
+    borderRadius: 12,
+  },
+  mobileLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+  },
+  mobileLinkText: {
+    color: colors.neonLime,
+    fontFamily: 'Inter-Bold',
+    fontSize: 9,
+    letterSpacing: 0.3,
+  },
   container: {
     paddingHorizontal: 16,
     paddingTop: 12,
